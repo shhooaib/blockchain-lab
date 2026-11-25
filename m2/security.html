@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Security Analysis · Password Security Lab · BlockLab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&family=Sometype+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/theme.css">
+</head>
+<body data-base="../" data-page="security">
+<div id="nav"></div>
+<div class="subnav"><div class="subnav-in" role="navigation" aria-label="Experiments"><a href="index.html">Overview</a><a href="hashing.html">01 Hashing</a><a href="salt.html">02 Salting</a><a href="verification.html">03 Verification</a><a href="comparison.html">04 Comparison</a><a href="avalanche.html">05 Avalanche</a><a href="security.html" class="on">06 Analysis</a></div></div>
+<main id="main">
+  <div class="wrap mhead">
+    <p class="crumbs"><a href="../index.html">Hub</a> / <a href="index.html">Module 02</a> / Security Analysis</p>
+    <p class="kicker">Experiment 06</p>
+    <h1>Security analysis</h1>
+    <p class="lead">These notes connect the earlier experiments to the attacks they resist. This lab is still not a production login system: real services also need HTTPS, rate limiting and server-side hashing.</p>
+  </div>
+  <div class="wrap" style="padding-bottom:clamp(48px,7vw,96px)">
+
+    <div class="grid g3">
+      <article class="card hover"><span class="badge bad">High risk</span><h3 style="margin:.9rem 0 .5rem">Plaintext storage</h3><p>Storing passwords exactly as entered means anyone who obtains the database can read every credential, and users who reused the password elsewhere are exposed too.</p><div class="notice " style="font-size:.88rem"><b>Defence.</b> Never store plaintext. Use a dedicated password-hashing algorithm with a unique salt.</div></article>
+      <article class="card hover"><span class="badge warn">Common</span><h3 style="margin:.9rem 0 .5rem">Dictionary attacks</h3><p>An attacker tries likely passwords from wordlists, common phrases and leaked credentials. Human-chosen passwords follow predictable patterns.</p><div class="notice " style="font-size:.88rem"><b>Defence.</b> Prefer long unique passphrases and reject known-compromised passwords.</div></article>
+      <article class="card hover"><span class="badge warn">Compute</span><h3 style="margin:.9rem 0 .5rem">Brute-force attacks</h3><p>Every candidate is tried until one matches. The search space grows with length and character variety, but fast hashes keep each guess cheap.</p><div class="notice " style="font-size:.88rem"><b>Defence.</b> Use slow, tunable password hashing such as bcrypt, Argon2id or scrypt.</div></article>
+      <article class="card hover"><span class="badge warn">Precomputed</span><h3 style="margin:.9rem 0 .5rem">Rainbow tables</h3><p>Precomputed hash chains speed up recovery of unsalted passwords when the algorithm and candidate space are known.</p><div class="notice " style="font-size:.88rem"><b>Defence.</b> A unique random salt per password makes shared precomputed tables ineffective.</div></article>
+      <article class="card hover"><span class="badge ok">Essential</span><h3 style="margin:.9rem 0 .5rem">Salting</h3><p>A salt is a random unique value combined with the password before hashing, so the same password yields different stored outputs for different accounts.</p><div class="notice ok" style="font-size:.88rem"><b>Key point.</b> Salts are not secret. Store each salt with its derived hash. bcrypt embeds the salt in its output string.</div></article>
+      <article class="card hover"><span class="badge ok">Recommended</span><h3 style="margin:.9rem 0 .5rem">Why bcrypt?</h3><p>bcrypt includes a salt and a configurable cost factor. Deliberately slow computation raises the price of every guess, unlike fast SHA functions.</p><div class="notice ok" style="font-size:.88rem"><b>Key point.</b> For new systems consider Argon2id. bcrypt remains a widely deployed option with a high enough cost.</div></article>
+    </div>
+    <div class="card white" style="margin-top:1.5rem" id="calc">
+      <div class="card-head"><div><h3>Brute-force estimator</h3><p>Average time to find a random password. Rates are order-of-magnitude assumptions for one modern GPU, not measurements.</p></div><span class="badge">Interactive</span></div>
+      <div class="grid g3">
+        <div class="field"><label for="cLen">Length: <span id="cLenV"></span></label><input id="cLen" type="range" min="6" max="20" value="10"></div>
+        <div class="field"><label for="cSet">Characters used</label><select id="cSet"><option value="26">Lowercase letters (26)</option><option value="62" selected>Letters and digits (62)</option><option value="94">All printable ASCII (94)</option></select></div>
+        <div class="field"><label for="cRate">Hash being attacked</label><select id="cRate"><option value="10000000000" selected>SHA-256 · about 10 billion guesses/s</option><option value="5000">bcrypt cost 10 · about 5,000 guesses/s</option></select></div>
+      </div>
+      <div id="cOut"></div>
+    </div>
+    <div class="card white" style="margin-top:1.5rem">
+      <h3>General-purpose hash versus password hash</h3>
+      <div class="tw" style="margin-top:1rem"><table><thead><tr><th>Property</th><th>SHA-256</th><th>bcrypt</th></tr></thead><tbody>
+        <tr><td>Primary design</td><td>General-purpose hashing</td><td>Password hashing</td></tr>
+        <tr><td>Built-in salt</td><td>No</td><td>Yes</td></tr>
+        <tr><td>Configurable work factor</td><td>No</td><td>Yes</td></tr>
+        <tr><td>Designed to be slow</td><td>No</td><td>Yes</td></tr>
+        <tr><td>Password storage suitability</td><td>Not by itself</td><td>Suitable when the cost is high enough</td></tr>
+      </tbody></table></div>
+    </div>
+<nav class="row between" style="margin-top:2.5rem" aria-label="Experiment sequence">
+  <a class="btn ghost" href="avalanche.html">← Avalanche</a>
+  <span></span>
+</nav>
+  </div>
+</main>
+<div id="foot"></div>
+<script src="../js/common.js"></script>
+<script src="m2.js"></script>
+</body>
+</html>

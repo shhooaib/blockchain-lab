@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Avalanche Effect · Password Security Lab · BlockLab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&family=Sometype+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/theme.css">
+</head>
+<body data-base="../" data-page="avalanche">
+<div id="nav"></div>
+<div class="subnav"><div class="subnav-in" role="navigation" aria-label="Experiments"><a href="index.html">Overview</a><a href="hashing.html">01 Hashing</a><a href="salt.html">02 Salting</a><a href="verification.html">03 Verification</a><a href="comparison.html">04 Comparison</a><a href="avalanche.html" class="on">05 Avalanche</a><a href="security.html">06 Analysis</a></div></div>
+<main id="main">
+  <div class="wrap mhead">
+    <p class="crumbs"><a href="../index.html">Hub</a> / <a href="index.html">Module 02</a> / Avalanche Effect</p>
+    <p class="kicker">Experiment 05</p>
+    <h1>Avalanche effect</h1>
+    <p class="lead">A small change in a hash input should flip about half of the output bits. That property stops an attacker from learning anything from a “nearby” guess.</p>
+  </div>
+  <div class="wrap" style="padding-bottom:clamp(48px,7vw,96px)">
+
+    <div class="card white">
+      <div class="card-head"><div><h3>Compare two inputs</h3><p>The default pair differs by one capital letter. Try other one-character edits.</p></div><span class="badge">SHA-256 · 256 bits</span></div>
+      <form id="avalancheForm">
+        <div class="grid g2"><div class="field"><label for="avOriginal">Original text</label><textarea id="avOriginal" rows="3">password</textarea></div>
+        <div class="field"><label for="avModified">Modified text</label><textarea id="avModified" rows="3">Password</textarea></div></div>
+        <button class="btn" type="submit">Compare digests</button>
+      </form>
+      <div id="avResults"></div>
+    </div>
+<nav class="row between" style="margin-top:2.5rem" aria-label="Experiment sequence">
+  <a class="btn ghost" href="comparison.html">← Comparison</a>
+  <a class="btn" href="security.html">Analysis <span class="arrow">→</span></a>
+</nav>
+  </div>
+</main>
+<div id="foot"></div>
+<script src="../js/common.js"></script>
+<script src="m2.js"></script>
+</body>
+</html>

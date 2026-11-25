@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Password Hashing · Password Security Lab · BlockLab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&family=Sometype+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/theme.css">
+</head>
+<body data-base="../" data-page="hashing">
+<div id="nav"></div>
+<div class="subnav"><div class="subnav-in" role="navigation" aria-label="Experiments"><a href="index.html">Overview</a><a href="hashing.html" class="on">01 Hashing</a><a href="salt.html">02 Salting</a><a href="verification.html">03 Verification</a><a href="comparison.html">04 Comparison</a><a href="avalanche.html">05 Avalanche</a><a href="security.html">06 Analysis</a></div></div>
+<main id="main">
+  <div class="wrap mhead">
+    <p class="crumbs"><a href="../index.html">Hub</a> / <a href="index.html">Module 02</a> / Password Hashing</p>
+    <p class="kicker">Experiment 01</p>
+    <h1>Password hashing</h1>
+    <p class="lead">A cryptographic hash maps input of any length to a fixed-size digest. Web Crypto computes SHA-1, SHA-256 and SHA-512 right here. Hashing is one-way: the digest is not designed to be reversed into the original text.</p>
+  </div>
+  <div class="wrap" style="padding-bottom:clamp(48px,7vw,96px)">
+
+    <div class="card white">
+      <div class="card-head"><div><h3>Hash generator</h3><p>Use invented sample text. SHA-1 is shown for comparison only and is not suitable for new designs.</p></div><span class="badge">Web Crypto API</span></div>
+      <form id="hashForm"><label for="hashInput">Sample input</label>
+        <div class="row" style="flex-wrap:nowrap"><input id="hashInput" type="text" placeholder="e.g. correct horse battery staple" autocomplete="off" value="correct horse battery staple"><button class="btn" id="hashBtn" type="submit" style="flex:none">Generate hashes</button></div>
+      </form>
+      <div id="hashResults"></div>
+    </div>
+    <div class="notice" style="margin-top:1.5rem"><h4>What to notice</h4>Each algorithm always returns the same length, whatever the input size. The same input always produces the same digest. That repeatability is useful for integrity checks and a problem for password storage unless a unique salt is added next.</div>
+    <script>window.addEventListener('load',function(){document.getElementById('hashForm').dispatchEvent(new Event('submit',{cancelable:true}));});</script>
+<nav class="row between" style="margin-top:2.5rem" aria-label="Experiment sequence">
+  <a class="btn ghost" href="index.html">← Overview</a>
+  <a class="btn" href="salt.html">Salting <span class="arrow">→</span></a>
+</nav>
+  </div>
+</main>
+<div id="foot"></div>
+<script src="../js/common.js"></script>
+<script src="m2.js"></script>
+</body>
+</html>

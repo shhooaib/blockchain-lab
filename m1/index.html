@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Salary Blockchain · BlockLab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&family=Sometype+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/theme.css">
+</head>
+<body data-base="../">
+<div id="nav"></div>
+<main id="main">
+  <div class="wrap mhead">
+    <p class="crumbs"><a href="../index.html">Hub</a> / Module 01</p>
+    <p class="kicker">Module 01 · Payroll ledger</p>
+    <h1>Salary Blockchain</h1>
+    <p class="lead">Every salary payment becomes a block that carries the hash of the block before it. Change one amount anywhere and every later link breaks. Add records, validate the chain, then try to cheat it.</p>
+  </div>
+
+  <div class="wrap">
+    <div id="status" class="notice ok" role="status"></div>
+  </div>
+
+  <section class="wrap" style="padding-block:2rem 1rem">
+    <div class="grid g2" style="align-items:start">
+      <div class="card white">
+        <div class="card-head"><div><h3>Record a salary payment</h3><p>Each record is appended as a new block.</p></div><span class="badge">Append only</span></div>
+        <form id="addForm" novalidate>
+          <div class="form-row">
+            <div class="field"><label for="empId">Employee ID</label><input id="empId" autocomplete="off" placeholder="EMP-101" maxlength="20"></div>
+            <div class="field"><label for="empName">Employee name</label><input id="empName" autocomplete="off" placeholder="Asha Rao" maxlength="60"></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label for="salary">Salary amount</label><input id="salary" inputmode="decimal" autocomplete="off" placeholder="45000.00"><p class="hint">Positive number, up to 2 decimals.</p></div>
+            <div class="field"><label for="month">Pay month</label><input id="month" type="month"></div>
+          </div>
+          <div id="formErr" class="err" role="alert"></div>
+          <div class="row" style="margin-top:.5rem"><button class="btn" type="submit">Add block <span class="arrow">→</span></button>
+          <button class="btn ghost" type="button" id="fillDemo">Fill sample</button></div>
+        </form>
+      </div>
+
+      <div class="stack">
+        <div class="card white">
+          <div class="card-head"><div><h3>Attack and defend</h3><p>Edit history without leaving a trace? Try it.</p></div><span class="badge warn">Demo</span></div>
+          <div class="form-row">
+            <div class="field"><label for="tBlock">Block to alter</label><select id="tBlock"></select></div>
+            <div class="field"><label for="tSalary">New salary value</label><input id="tSalary" inputmode="decimal" placeholder="e.g. 999999"></div>
+          </div>
+          <div class="row">
+            <button class="btn danger sm" id="btnTamper" type="button">Alter data only</button>
+            <button class="btn danger sm" id="btnTamperRehash" type="button">Alter and re-hash block</button>
+          </div>
+          <p class="hint">“Alter data only” keeps the old hash, so that block fails its own check. “Alter and re-hash” recomputes that block’s hash, but the next block still holds the old one, so the link breaks.</p>
+          <hr style="border:0;border-top:1px solid var(--line);margin:1.2rem 0">
+          <div class="row">
+            <button class="btn purple sm" id="btnValidate" type="button">Validate chain</button>
+            <button class="btn ghost sm" id="btnRestore" type="button">Restore trusted copy</button>
+            <button class="btn ghost sm" id="btnReset" type="button">Reset ledger</button>
+          </div>
+          <p class="hint">“Restore trusted copy” replaces the chain with the last snapshot that passed validation, like re-syncing from honest peers.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap" style="padding-block:1rem 2rem">
+    <div class="row between" style="margin-bottom:.75rem"><div><p class="kicker" style="margin:0">Ledger</p><h2 style="font-size:clamp(1.6rem,3vw,2.2rem)">The chain</h2></div>
+      <div class="row"><span class="badge" id="blockCount"></span><button class="btn ghost sm" id="btnCopy" type="button">Copy chain JSON</button></div></div>
+    <div class="chain" id="chain" tabindex="0" aria-label="Blockchain blocks, scroll sideways"></div>
+  </section>
+
+  <section class="wrap" style="padding-block:1rem clamp(48px,7vw,96px)">
+    <div class="card white">
+      <div class="card-head"><div><h3>Payroll summary</h3><p>Totals from blocks that pass validation. Altered blocks are excluded so tampering cannot inflate the figures.</p></div></div>
+      <div class="tw"><table><thead><tr><th>Employee</th><th>Name</th><th class="right">Payments</th><th class="right">Total paid</th></tr></thead><tbody id="summary"></tbody></table></div>
+    </div>
+  </section>
+</main>
+<div id="foot"></div>
+<script src="../js/common.js"></script>
+<script>
+(function(){
+  'use strict';
+  var KEY='blocklab.m1.chain', SNAP='blocklab.m1.trusted';
+  var chain, $=BL.$, esc=BL.esc;
+
+  function money(c){ return (c/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function genesis(){ return BL.makeBlock(0,{type:'genesis',note:'Genesis block'},BL.ZERO); }
+  function save(){ BL.store.set(KEY,chain); }
+  function load(){
+    var c=BL.store.get(KEY,null);
+    if(!Array.isArray(c)||!c.length||!c[0].data){ chain=[genesis()]; BL.store.set(SNAP,chain); save(); }
+    else chain=c;
+  }
+  function parseCents(s){
+    s=String(s).trim().replace(/,/g,'');
+    if(!/^\d+(\.\d{1,2})?$/.test(s)) return null;
+    var c=Math.round(parseFloat(s)*100);
+    return (c>0 && c<=100000000000)?c:null;
+  }
+  function records(){ return chain.slice(1).filter(function(b){return b.data&&b.data.employeeId;}); }
+  function addRecord(rec){
+    var prev=chain[chain.length-1];
+    chain.push(BL.makeBlock(chain.length,rec,prev.hash)); save();
+    if(BL.verifyChain(chain).ok) BL.store.set(SNAP,chain);
+  }
+  function refresh(){
+    var v=BL.verifyChain(chain), bad={};
+    v.issues.forEach(function(i){ (bad[i.index]=bad[i.index]||[]).push(i.reason); });
+    var st=$('#status');
+    if(v.ok){ st.className='notice ok'; st.innerHTML='<h4>Chain valid</h4>All '+chain.length+' blocks match their hashes and every link is intact.'; }
+    else{
+      var first=v.issues[0].index;
+      st.className='notice bad'; st.innerHTML='<h4>Chain invalid</h4>First problem at block #'+first+': '+esc(v.issues[0].reason)+'. '+v.issues.length+' issue'+(v.issues.length>1?'s':'')+' found in total.';
+    }
+    $('#blockCount').textContent=chain.length+' block'+(chain.length>1?'s':'');
+    var html='';
+    chain.forEach(function(b,i){
+      var d=b.data||{}, isG=i===0, isBad=!!bad[i];
+      html+='<article class="block'+(isG?' genesis':'')+(isBad?' bad':'')+'" aria-label="Block '+i+'">'+
+        '<h4>Block #'+i+(isBad?'<span class="badge bad">Invalid</span>':'<span class="badge ok">Valid</span>')+'</h4><dl>'+
+        (isG?'<div><dt>Type</dt><dd>Genesis block</dd></div>':
+        '<div><dt>Employee</dt><dd>'+esc(d.employeeName)+' <span class="muted mono">('+esc(d.employeeId)+')</span></dd></div>'+
+        '<div><dt>Salary · month</dt><dd class="num">'+(typeof d.salaryCents==='number'?money(d.salaryCents):esc(d.salaryCents))+' · '+esc(d.month)+'</dd></div>')+
+        '<div><dt>Timestamp</dt><dd>'+esc(BL.fmtTime(b.timestamp))+'</dd></div>'+
+        '<div><dt>Previous hash</dt><dd><span class="hash">'+esc(b.prevHash)+'</span></dd></div>'+
+        '<div><dt>Hash</dt><dd><span class="hash">'+esc(b.hash)+'</span></dd></div>'+
+        (isBad?'<div><dt>Why it failed</dt><dd style="color:var(--bad)">'+esc(bad[i].join('; '))+'</dd></div>':'')+
+        '</dl></article>'+(i<chain.length-1?'<div class="link-arrow" aria-hidden="true">→</div>':'');
+    });
+    $('#chain').innerHTML=html;
+    var sel=$('#tBlock'), cur=sel.value;
+    sel.innerHTML=chain.map(function(b,i){ var d=b.data||{}; return '<option value="'+i+'">#'+i+(i===0?' Genesis':' '+esc(d.employeeName)+' · '+esc(d.month))+'</option>'; }).join('');
+    if(cur&&cur<chain.length) sel.value=cur; else sel.value=chain.length-1;
+    // summary only from blocks that validate
+    var sum={};
+    records().forEach(function(b){
+      if(bad[b.index]) return;
+      var d=b.data, s=sum[d.employeeId]||(sum[d.employeeId]={name:d.employeeName,n:0,t:0});
+      s.n++; s.t+=d.salaryCents;
+    });
+    var ids=Object.keys(sum), rows='', grand=0;
+    ids.forEach(function(id){ var s=sum[id]; grand+=s.t; rows+='<tr><td class="mono">'+esc(id)+'</td><td>'+esc(s.name)+'</td><td class="right num">'+s.n+'</td><td class="right num">'+money(s.t)+'</td></tr>'; });
+    $('#summary').innerHTML=ids.length?rows+'<tr><td colspan="3"><b>Total</b></td><td class="right num"><b>'+money(grand)+'</b></td></tr>':'<tr><td colspan="4"><div class="empty">No salary records yet. Add one above.</div></td></tr>';
+  }
+
+  $('#addForm').addEventListener('submit',function(e){
+    e.preventDefault();
+    var id=$('#empId').value.trim().toUpperCase(), name=$('#empName').value.trim().replace(/\s+/g,' '),
+        cents=parseCents($('#salary').value), month=$('#month').value, err='';
+    if(!BL.verifyChain(chain).ok) err='The chain is currently invalid. Restore the trusted copy or reset before adding records.';
+    else if(!/^[A-Z0-9][A-Z0-9_-]{1,19}$/.test(id)) err='Employee ID must be 2–20 letters, digits, dashes or underscores.';
+    else if(name.length<2) err='Enter the employee’s name.';
+    else if(cents===null) err='Salary must be a positive amount with at most 2 decimals.';
+    else if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) err='Choose a pay month.';
+    else{
+      var clash=records().find(function(b){return b.data.employeeId===id&&b.data.employeeName.toLowerCase()!==name.toLowerCase();});
+      var dup=records().find(function(b){return b.data.employeeId===id&&b.data.month===month;});
+      if(clash) err='ID '+id+' already belongs to '+clash.data.employeeName+'.';
+      else if(dup) err=id+' already has a salary recorded for '+month+'. Blocks are permanent, so duplicates are refused.';
+    }
+    $('#formErr').textContent=err;
+    if(err) return;
+    addRecord({employeeId:id,employeeName:name,salaryCents:cents,month:month});
+    BL.toast('Block #'+(chain.length-1)+' added','ok');
+    $('#salary').value=''; refresh();
+  });
+  $('#fillDemo').addEventListener('click',function(){
+    var d=new Date(); $('#empId').value='EMP-'+(100+Math.floor(Math.random()*800)); $('#empName').value=['Asha Rao','Imran Khan','Meera Nair','Rahul Verma'][Math.floor(Math.random()*4)];
+    $('#salary').value=String(30000+Math.floor(Math.random()*40000))+'.00'; $('#month').value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  });
+  function tamper(rehash){
+    var i=parseInt($('#tBlock').value,10), b=chain[i], raw=$('#tSalary').value.trim();
+    if(!b) return;
+    if(i===0){ b.data.note='Edited genesis'; }
+    else{
+      var c=raw?parseCents(raw):b.data.salaryCents+1000000;
+      if(c===null){ BL.toast('Enter a valid new salary (or leave blank to add 10,000)','bad'); return; }
+      b.data.salaryCents=c;
+    }
+    if(rehash) b.hash=BL.hashBlock(b);
+    save(); refresh();
+    BL.toast(rehash?'Block re-hashed, but the next link now fails':'Data changed, hash left alone','bad');
+  }
+  $('#btnTamper').addEventListener('click',function(){tamper(false);});
+  $('#btnTamperRehash').addEventListener('click',function(){tamper(true);});
+  $('#btnValidate').addEventListener('click',function(){ var v=BL.verifyChain(chain); refresh(); BL.toast(v.ok?'Chain is valid':'Chain is INVALID', v.ok?'ok':'bad'); });
+  $('#btnRestore').addEventListener('click',function(){ chain=BL.store.get(SNAP,[genesis()]); save(); refresh(); BL.toast('Trusted copy restored','ok'); });
+  $('#btnReset').addEventListener('click',function(){ chain=[genesis()]; BL.store.set(SNAP,chain); save(); refresh(); BL.toast('Ledger reset to genesis'); });
+  $('#btnCopy').addEventListener('click',function(){ BL.copy(JSON.stringify(chain,null,2)); });
+
+  BL.shell({mod:1}); load();
+  if(chain.length===1){ // realistic opening state
+    [['EMP-101','Asha Rao',4500000,'2026-09'],['EMP-102','Imran Khan',5200000,'2026-09'],['EMP-101','Asha Rao',4500000,'2026-10']].forEach(function(r){ addRecord({employeeId:r[0],employeeName:r[1],salaryCents:r[2],month:r[3]}); });
+  }
+  refresh();
+})();
+</script>
+</body>
+</html>

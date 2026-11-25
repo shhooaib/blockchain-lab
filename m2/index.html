@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overview · Password Security Lab · BlockLab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&family=Sometype+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/theme.css">
+</head>
+<body data-base="../" data-page="index">
+<div id="nav"></div>
+<div class="subnav"><div class="subnav-in" role="navigation" aria-label="Experiments"><a href="index.html" class="on">Overview</a><a href="hashing.html">01 Hashing</a><a href="salt.html">02 Salting</a><a href="verification.html">03 Verification</a><a href="comparison.html">04 Comparison</a><a href="avalanche.html">05 Avalanche</a><a href="security.html">06 Analysis</a></div></div>
+<main id="main">
+  <div class="wrap mhead">
+    <p class="crumbs"><a href="../index.html">Hub</a> / <a href="index.html">Module 02</a></p>
+    <p class="kicker">Module 02 · Cryptography workshop</p>
+    <h1>Password Security Lab</h1>
+    <p class="lead">Six short experiments show why passwords are hashed, why salts matter, and why a fast checksum is the wrong tool for storing credentials. Work through them in order.</p>
+  </div>
+  <div class="wrap" style="padding-bottom:clamp(48px,7vw,96px)">
+
+    <div class="grid g3" style="margin-bottom:2.5rem">
+      <div class="card"><p class="kicker">Processing</p><p style="margin:0">Hashes are computed in this browser. Nothing is sent to a server.</p></div>
+      <div class="card"><p class="kicker">Storage</p><p style="margin:0">Demo accounts live in this tab’s memory and vanish on refresh.</p></div>
+      <div class="card"><p class="kicker">Sequence</p><p style="margin:0">Six experiments. Each page builds on the one before it.</p></div>
+    </div>
+    <p class="kicker">Curriculum</p>
+    <div class="grid g2" id="curr">
+      <a class="card hover" href="hashing.html" style="display:block;color:inherit"><div class="row between"><span class="stat" style="font-size:2rem">01</span><span class="badge">Open</span></div><h3 style="margin-top:.8rem">Password hashing</h3><p style="margin:.4rem 0 0">Turn a string into SHA-1, SHA-256 and SHA-512 digests and inspect the fixed-length output.</p></a>
+      <a class="card hover" href="salt.html" style="display:block;color:inherit"><div class="row between"><span class="stat" style="font-size:2rem">02</span><span class="badge">Open</span></div><h3 style="margin-top:.8rem">Salt demonstration</h3><p style="margin:.4rem 0 0">Hash the same password twice with different random salts and compare the stored values.</p></a>
+      <a class="card hover" href="verification.html" style="display:block;color:inherit"><div class="row between"><span class="stat" style="font-size:2rem">03</span><span class="badge">Open</span></div><h3 style="margin-top:.8rem">Password verification</h3><p style="margin:.4rem 0 0">Create a session-only account and check a password against a slow, salted hash instead of plaintext.</p></a>
+      <a class="card hover" href="comparison.html" style="display:block;color:inherit"><div class="row between"><span class="stat" style="font-size:2rem">04</span><span class="badge">Open</span></div><h3 style="margin-top:.8rem">Algorithm comparison</h3><p style="margin:.4rem 0 0">Measure SHA-family hashes against a password hash and see why speed is a problem for storage.</p></a>
+      <a class="card hover" href="avalanche.html" style="display:block;color:inherit"><div class="row between"><span class="stat" style="font-size:2rem">05</span><span class="badge">Open</span></div><h3 style="margin-top:.8rem">Avalanche effect</h3><p style="margin:.4rem 0 0">Change one character and count how many SHA-256 bits flip.</p></a>
+      <a class="card hover" href="security.html" style="display:block;color:inherit"><div class="row between"><span class="stat" style="font-size:2rem">06</span><span class="badge">Open</span></div><h3 style="margin-top:.8rem">Security analysis</h3><p style="margin:.4rem 0 0">Map common attacks to the defences these experiments illustrate, with a brute-force estimator.</p></a>
+    </div>
+    <div class="notice warn" style="margin-top:2rem"><h4>Educational sandbox</h4>Do not type a real or reused password. This is a client-side demonstration, not an authentication system.</div>
+
+  </div>
+</main>
+<div id="foot"></div>
+<script src="../js/common.js"></script>
+<script src="m2.js"></script>
+</body>
+</html>

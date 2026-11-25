@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blockchain Identity Verification · BlockLab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&family=Sometype+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/theme.css">
+</head>
+<body data-base="../">
+<div id="nav"></div>
+<div class="subnav"><div class="subnav-in" role="navigation" aria-label="Simulator sections">
+  <span id="tabs" style="display:contents"></span>
+  <div class="acting"><label for="actAs">Acting as</label><select id="actAs"></select></div>
+</div></div>
+<main id="main">
+  <div class="wrap mhead">
+    <p class="crumbs"><a href="../index.html">Hub</a> / Module 05</p>
+    <p class="kicker">Module 05 · Credentials</p>
+    <h1>Blockchain Identity Verification</h1>
+    <p class="lead">An owner registers an identity, an approved issuer attaches credentials, and a verifier checks a claim without the ledger ever holding the personal data. Only hash commitments go on-chain. Switch roles to play every part, then tamper with the ledger and see verification fail.</p>
+  </div>
+  <div class="wrap" style="padding-bottom:clamp(48px,7vw,96px)"><div id="view"></div></div>
+</main>
+<div id="foot"></div>
+<script src="../js/common.js"></script>
+<script>
+(function(){
+'use strict';
+var $=BL.$, esc=BL.esc, KEY='blocklab.m5.state.v2', S;
+var CRED_TYPES=['Degree','Employment','Age over 18','Address proof','Driving licence'];
+
+/* ---------- lookups ---------- */
+function U(id){ return S.users.find(function(u){return u.id===id;}); }
+function I(id){ return S.identities.find(function(x){return x.id===id;}); }
+function ISS(id){ return S.issuers.find(function(x){return x.id===id;}); }
+function C(id){ return S.credentials.find(function(x){return x.id===id;}); }
+function me(){ return U(S.actingAs)||S.users[0]; }
+function save(){ BL.store.set(KEY,S); }
+function log(m){ S.activity.unshift({ts:new Date().toISOString(),msg:m}); S.activity=S.activity.slice(0,40); }
+function nextId(p,list){ var n=list.length+1,id; do{ id=p+'-'+String(n).padStart(4,'0'); n++; }while(list.some(function(x){return x.id===id;})); return id; }
+function today(){ return new Date().toISOString().slice(0,10); }
+function ownerWallet(){ return S.wallet; }
+
+function addBlock(type,data){
+  var prev=S.blocks[S.blocks.length-1], d=Object.assign({type:type},data), b=BL.makeBlock(S.blocks.length,d,prev.hash);
+  S.blocks.push(b); S.trusted.push(BL.clone(b)); return b;
+}
+/* ---------- ledger-derived truth (used by verification) ---------- */
+function chainCred(id){ var b=S.blocks.find(function(b){return b.data.type==='CREDENTIAL_ISSUED'&&b.data.credentialId===id;}); return b?b.data:null; }
+function chainIdentity(id){ var b=S.blocks.find(function(b){return b.data.type==='IDENTITY_REGISTERED'&&b.data.identityId===id;}); return b?b.data:null; }
+function chainIssuer(id){ var b=S.blocks.find(function(b){return b.data.type==='ISSUER_REGISTERED'&&b.data.issuerId===id;}); return b?b.data:null; }
+function chainIssuerStatus(id){ var st='registered'; S.blocks.forEach(function(b){ if(b.data.issuerId===id){ if(b.data.type==='ISSUER_APPROVED') st='approved'; if(b.data.type==='ISSUER_REVOKED') st='revoked'; } }); return st; }
+function chainRevoked(id){ return S.blocks.some(function(b){return b.data.type==='CREDENTIAL_REVOKED'&&b.data.credentialId===id;}); }
+function commitOf(identityId,type,value,salt){ return BL.sha256(BL.canon({identityId:identityId,type:type,value:value,salt:salt})); }
+function sigOf(pub,credId,identityId,type,commitment){ return BL.sha256(['sig',pub,credId,identityId,type,commitment].join('|')); }
+
+/* ---------- core operations ---------- */
+function registerIdentity(owner,d){
+  var salt=BL.randHex(16), id=nextId('ID',S.identities);
+  var commitment=BL.sha256(BL.canon({name:d.name,dob:d.dob,salt:salt}));
+  var rec={id:id,ownerId:owner.id,alias:d.alias,did:'did:blockid:'+commitment.slice(0,20),commitment:commitment,createdAt:new Date().toISOString()};
+  S.identities.push(rec); S.wallet[id]={name:d.name,dob:d.dob,salt:salt,creds:{}};
+  addBlock('IDENTITY_REGISTERED',{identityId:id,ownerId:owner.id,alias:d.alias,did:rec.did,commitment:commitment});
+  log(owner.name+' registered identity '+id+' ('+d.alias+').'); return rec;
+}
+function registerIssuer(admin,name,userId){
+  var id=nextId('ISS',S.issuers), secret=BL.randHex(16), pub=BL.sha256('pub|'+secret);
+  var rec={id:id,name:name,userId:userId,status:'pending',secret:secret,pub:pub}; S.issuers.push(rec);
+  addBlock('ISSUER_REGISTERED',{issuerId:id,name:name,pub:pub}); log(admin.name+' registered issuer '+name+' (pending).'); return rec;
+}
+function setIssuer(admin,iss,status){
+  iss.status=status; addBlock(status==='approved'?'ISSUER_APPROVED':'ISSUER_REVOKED',{issuerId:iss.id,by:admin.id});
+  log(admin.name+(status==='approved'?' approved ':' revoked ')+iss.name+'.');
+}
+function issueCredential(user,iss,d){
+  var id=nextId('CR',S.credentials), salt=BL.randHex(16), commitment=commitOf(d.identityId,d.type,d.value,salt);
+  var rec={id:id,identityId:d.identityId,issuerId:iss.id,type:d.type,commitment:commitment,signature:sigOf(iss.pub,id,d.identityId,d.type,commitment),issuedAt:new Date().toISOString(),expires:d.expires||'',status:'valid'};
+  S.credentials.push(rec); S.wallet[d.identityId].creds[id]={value:d.value,salt:salt};
+  addBlock('CREDENTIAL_ISSUED',{credentialId:id,identityId:d.identityId,issuerId:iss.id,credType:d.type,commitment:commitment,signature:rec.signature,expires:rec.expires});
+  log(user.name+' issued '+d.type+' credential '+id+' to '+I(d.identityId).alias+'.'); return rec;
+}
+function revokeCredential(user,cr){ cr.status='revoked'; addBlock('CREDENTIAL_REVOKED',{credentialId:cr.id,by:user.id}); log(user.name+' revoked credential '+cr.id+'.'); }
+function grantAccess(owner,credId,verifierId){
+  var cr=C(credId), g={id:nextId('GR',S.grants),identityId:cr.identityId,credentialId:credId,verifierId:verifierId,active:true,at:new Date().toISOString()};
+  S.grants.push(g); addBlock('ACCESS_GRANTED',{grantId:g.id,identityId:g.identityId,credentialId:credId,verifierId:verifierId}); log(owner.name+' granted '+U(verifierId).name+' access to '+credId+'.'); return g;
+}
+function revokeAccess(owner,g){ g.active=false; addBlock('ACCESS_REVOKED',{grantId:g.id}); log(owner.name+' revoked access grant '+g.id+'.'); }
+
+/* ---------- verification ---------- */
+function runVerification(verifier,g,claimed){
+  var steps=[], ok=true;
+  function step(label,pass,detail){ steps.push({label:label,pass:pass,detail:detail}); if(!pass) ok=false; }
+  var v=BL.verifyChain(S.blocks);
+  step('Ledger integrity',v.ok,v.ok?'All '+S.blocks.length+' blocks are consistent.':'Block #'+v.issues[0].index+': '+v.issues[0].reason);
+  var idc=chainIdentity(g.identityId); step('Identity registered on ledger',!!idc,idc?idc.did:'No registration block found.');
+  step('Owner granted access to this verifier',g.active,g.active?'Grant '+g.id+' is active.':'Grant '+g.id+' was revoked.');
+  var cc=chainCred(g.credentialId); step('Credential found on ledger',!!cc,cc?cc.credType+' · '+cc.credentialId:'No issuance block found.');
+  var ic=cc&&chainIssuer(cc.issuerId), ist=cc?chainIssuerStatus(cc.issuerId):null;
+  step('Issuer is currently approved',!!ic&&ist==='approved',ic?ic.name+' is '+ist+'.':'Issuer unknown.');
+  step('Credential not revoked',!!cc&&!chainRevoked(g.credentialId),cc&&chainRevoked(g.credentialId)?'A revocation block exists.':'No revocation found.');
+  var expired=!!(cc&&cc.expires&&cc.expires<today());
+  step('Credential not expired',!!cc&&!expired,cc&&cc.expires?(expired?'Expired on '+cc.expires+'.':'Valid until '+cc.expires+'.'):'No expiry set.');
+  var sigOK=!!(cc&&ic)&&cc.signature===sigOf(ic.pub,cc.credentialId,cc.identityId,cc.credType,cc.commitment);
+  step('Issuer signature valid (simulated)',sigOK,sigOK?'Signature matches the issuer’s registered key.':'Signature does not match the on-chain data.');
+  var w=S.wallet[g.identityId]&&S.wallet[g.identityId].creds[g.credentialId], match=false;
+  if(w&&cc) match=commitOf(cc.identityId,cc.credType,claimed,w.salt)===cc.commitment;
+  step('Claim matches the on-chain commitment',match,match?'Hash of “'+claimed+'” + owner’s disclosed salt equals the commitment.':'The claimed value does not hash to the stored commitment.');
+  var rec={id:nextId('VR',S.verifications),verifierId:verifier.id,identityId:g.identityId,credentialId:g.credentialId,claimed:claimed,result:ok?'verified':'rejected',steps:steps,at:new Date().toISOString()};
+  S.verifications.push(rec); addBlock('VERIFICATION',{verificationId:rec.id,verifierId:verifier.id,credentialId:g.credentialId,result:rec.result});
+  log(verifier.name+' verification '+rec.id+': '+rec.result+'.'); return rec;
+}
+
+function freshState(){
+  S={users:[],issuers:[],identities:[],credentials:[],grants:[],verifications:[],wallet:{},blocks:[],trusted:[],activity:[],actingAs:'u-priya'};
+  [['u-priya','Priya Sharma','Admin'],['u-asha','Asha Rao','Owner'],['u-imran','Imran Khan','Owner'],['u-reg','Dr. Mehta (Registrar)','Issuer'],['u-hr','Kavita (HR, Orbit Labs)','Issuer'],['u-orbit','Orbit Labs Hiring Desk','Verifier'],['u-bank','Harbor Bank KYC Desk','Verifier']]
+    .forEach(function(r){ S.users.push({id:r[0],name:r[1],role:r[2],active:true}); });
+  var g=BL.makeBlock(0,{type:'GENESIS',note:'BlockID genesis block'},BL.ZERO); S.blocks.push(g); S.trusted.push(BL.clone(g));
+  var admin=U('u-priya'), uni=registerIssuer(admin,'Northfield University','u-reg'); setIssuer(admin,uni,'approved');
+  registerIssuer(admin,'Orbit Labs HR','u-hr');
+  var asha=registerIdentity(U('u-asha'),{name:'Asha Rao',dob:'2003-05-14',alias:'asha-r'}); registerIdentity(U('u-imran'),{name:'Imran Khan',dob:'2002-11-02',alias:'imran-k'});
+  var cr=issueCredential(U('u-reg'),uni,{identityId:asha.id,type:'Degree',value:'B.E. Computer Science, 2027',expires:''});
+  var gr=grantAccess(U('u-asha'),cr.id,'u-orbit'); runVerification(U('u-orbit'),gr,'B.E. Computer Science, 2027');
+  log('Demo data loaded.');
+}
+
+/* ---------- permission gate ---------- */
+function gate(role,what){
+  var m=me();
+  if(!m.active){ BL.toast('Access denied: '+m.name+' is inactive.','bad'); return false; }
+  if(m.role!==role){ BL.toast('Access denied: '+what+' needs the '+role+' role. You are acting as '+m.role+'.','bad'); return false; }
+  return true;
+}
+
+/* ---------- views ---------- */
+var V={};
+function stat(n,l){ return '<div class="card white sm rv"><div class="stat">'+n+'</div><div class="stat-l">'+l+'</div></div>'; }
+function bd(s){ var c={approved:'ok',valid:'ok',verified:'ok',pending:'warn',revoked:'bad',rejected:'bad',active:'ok'}[s]||''; return '<span class="badge '+c+'">'+esc(s)+'</span>'; }
+function idOpts(list,sel){ return list.map(function(x){return '<option value="'+x.id+'"'+(x.id===sel?' selected':'')+'>'+esc(x.alias)+' · '+x.id+'</option>';}).join(''); }
+function myIssuer(m){ return S.issuers.find(function(x){return x.userId===m.id;}); }
+
+V.overview=function(){
+  var m=me();
+  var role={Admin:'Register and approve issuers, and inspect or tamper with the ledger.',Owner:'Register identities and grant verifiers access to specific credentials.',Issuer:'Issue and revoke credentials, once your organisation is approved.',Verifier:'Submit verification requests for credentials an owner has shared with you.'}[m.role];
+  return '<div class="grid g5">'+stat(S.identities.length,'Identities')+stat(S.issuers.filter(function(i){return i.status==='approved';}).length+'/'+S.issuers.length,'Issuers approved')+stat(S.credentials.length,'Credentials')+stat(S.verifications.length,'Verifications')+stat(S.blocks.length,'Blocks')+'</div>'+
+  '<div class="notice" style="margin-top:1.25rem"><b>You are acting as '+esc(m.name)+' ('+m.role+').</b> '+role+'</div>'+
+  '<div class="grid g2" style="margin-top:1.25rem;align-items:start"><div class="card white"><h3>How a verification works</h3><ol style="padding-left:1.1rem;margin:.8rem 0 0"><li>An <b>Owner</b> registers an identity. Their name and date of birth stay in a private wallet. The ledger gets only a hash commitment.</li><li>An approved <b>Issuer</b> issues a credential. The ledger stores a commitment to the claim plus a simulated signature.</li><li>The owner <b>grants a Verifier access</b> and discloses the claim and its salt.</li><li>The <b>Verifier</b> states the claim. Nine checks run, ending with “does this claim hash to the commitment?”.</li><li>An <b>Admin</b> can tamper with a block. Every later verification then fails the integrity check.</li></ol></div>'+
+  '<div class="card white"><div class="card-head"><div><h3>Recent activity</h3></div></div>'+(S.activity.slice(0,7).map(function(a){return '<p style="margin:0 0 .6rem;font-size:.92rem"><span class="muted mono" style="font-size:.72rem">'+esc(BL.fmtTime(a.ts))+'</span><br>'+esc(a.msg)+'</p>';}).join('')||'<div class="empty">No activity.</div>')+'</div></div>';
+};
+
+V.identities=function(){
+  var m=me(), mine=S.identities.filter(function(x){return x.ownerId===m.id;});
+  var cards=S.identities.map(function(x){
+    var own=x.ownerId===m.id, w=S.wallet[x.id];
+    return '<div class="card white rv"><div class="row between"><h3>'+esc(x.alias)+'</h3><span class="badge">'+x.id+'</span></div><label style="margin-top:.8rem">DID</label><span class="hash">'+esc(x.did)+'</span><label style="margin-top:.8rem">On-chain commitment</label><span class="hash">'+esc(x.commitment)+'</span>'+
+     (own&&w?'<div class="notice ok" style="margin-top:1rem"><h4>Your private wallet</h4>Name: <b>'+esc(w.name)+'</b><br>Date of birth: <b>'+esc(w.dob)+'</b><br>Salt: <span class="mono">'+esc(BL.short(w.salt,6))+'</span></div>':'<p class="hint" style="margin-top:1rem">Personal data is private to the owner. Only the commitment is public.</p>')+'</div>';
+  }).join('');
+  return '<div class="grid g2" style="align-items:start"><div class="card"><h3>Register an identity</h3><p>Owner role. The ledger stores <code>SHA-256(name, birth date, salt)</code>, not the data itself.</p><form id="idForm" novalidate><div class="field"><label for="iName">Full legal name</label><input id="iName" maxlength="60" autocomplete="off" placeholder="Fictional name only"></div><div class="form-row"><div class="field"><label for="iDob">Date of birth</label><input id="iDob" type="date" max="'+today()+'" min="1900-01-01"></div><div class="field"><label for="iAlias">Public alias</label><input id="iAlias" maxlength="24" autocomplete="off" placeholder="asha-r"><p class="hint">Lowercase letters, digits, dashes.</p></div></div><div id="iErr" class="err"></div><button class="btn" type="submit">Register identity</button></form></div>'+
+  '<div class="notice warn"><h4>Fictional data only</h4>Browser storage is not secure. Do not enter real personal details.'+(m.role==='Owner'?'<br><br>You own '+mine.length+' identit'+(mine.length===1?'y':'ies')+'.':'')+'</div></div><div class="grid g2" style="margin-top:1.25rem">'+(cards||'<div class="empty">No identities yet.</div>')+'</div>';
+};
+
+V.issuers=function(){
+  var rows=S.issuers.map(function(i){ var u=U(i.userId), chain=chainIssuerStatus(i.id);
+    return '<tr><td><b>'+esc(i.name)+'</b><div class="hint mono">'+i.id+'</div></td><td>'+esc(u?u.name:'—')+'</td><td>'+bd(i.status)+'</td><td><span class="hash sm">'+esc(BL.short(i.pub,8))+'</span></td><td class="right"><div class="row" style="justify-content:flex-end">'+(i.status!=='approved'?'<button class="btn sm" data-act="iss-approve" data-id="'+i.id+'" type="button">Approve</button>':'')+(i.status==='approved'?'<button class="btn danger sm" data-act="iss-revoke" data-id="'+i.id+'" type="button">Revoke</button>':'')+'</div></td></tr>';
+  }).join('');
+  var free=S.users.filter(function(u){return u.role==='Issuer'&&!S.issuers.some(function(i){return i.userId===u.id;});});
+  return '<div class="grid g2" style="align-items:start"><div class="card white"><div class="card-head"><div><h3>Issuers</h3><p>Admin only. Credentials from a revoked issuer fail verification, even old ones.</p></div></div><div class="tw"><table><thead><tr><th>Issuer</th><th>Linked user</th><th>Status</th><th>Public key</th><th></th></tr></thead><tbody>'+(rows||'<tr><td colspan="5"><div class="empty">No issuers.</div></td></tr>')+'</tbody></table></div></div>'+
+  '<div class="card"><h3>Register issuer</h3><form id="issForm" novalidate style="margin-top:1rem"><div class="field"><label for="sName">Organisation name</label><input id="sName" maxlength="50" autocomplete="off"></div><div class="field"><label for="sUser">Linked issuer account</label><select id="sUser">'+(free.map(function(u){return '<option value="'+u.id+'">'+esc(u.name)+'</option>';}).join('')||'<option value="">No unlinked issuer accounts</option>')+'</select></div><div id="sErr" class="err"></div><button class="btn" type="submit">Register as pending</button></form></div></div>';
+};
+
+V.credentials=function(){
+  var m=me(), iss=m.role==='Issuer'?myIssuer(m):null;
+  var rows=S.credentials.slice().reverse().map(function(c){ var i=I(c.identityId), is=ISS(c.issuerId), w=S.wallet[c.identityId], own=i&&i.ownerId===m.id, val=own&&w&&w.creds[c.id];
+    var canRev=m.role==='Issuer'&&iss&&iss.id===c.issuerId&&c.status==='valid';
+    return '<tr><td class="mono">'+c.id+'</td><td>'+esc(i?i.alias:'?')+'</td><td>'+esc(c.type)+'<div class="hint">'+(val?'Claim: <b>'+esc(val.value)+'</b>':'Claim hidden (commitment only)')+'</div></td><td>'+esc(is?is.name:'?')+'</td><td>'+bd(c.status)+(c.expires?'<div class="hint">expires '+esc(c.expires)+'</div>':'')+'</td><td class="right">'+(canRev?'<button class="btn ghost sm" data-act="cr-revoke" data-id="'+c.id+'" type="button">Revoke</button>':'')+'</td></tr>';
+  }).join('');
+  return '<div class="grid g2" style="align-items:start"><div class="card"><h3>Issue a credential</h3><p>Issuer role, approved issuer only. The claim and a fresh salt go to the owner’s wallet. The ledger gets the commitment and a signature.</p>'+
+  (m.role==='Issuer'?'<div class="notice '+(iss&&iss.status==='approved'?'ok':'warn')+'" style="margin-bottom:1rem">Your issuer: <b>'+esc(iss?iss.name:'none linked')+'</b> · '+(iss?iss.status:'')+'</div>':'')+
+  '<form id="crForm" novalidate><div class="form-row"><div class="field"><label for="cId">Identity</label><select id="cId">'+idOpts(S.identities)+'</select></div><div class="field"><label for="cType">Credential type</label><select id="cType">'+CRED_TYPES.map(function(t){return '<option>'+t+'</option>';}).join('')+'</select></div></div>'+
+  '<div class="field"><label for="cVal">Claim</label><input id="cVal" maxlength="80" autocomplete="off" placeholder="B.E. Computer Science, 2027"><p class="hint">Verifiers must quote this exactly.</p></div><div class="field"><label for="cExp">Expiry (optional)</label><input id="cExp" type="date" min="'+today()+'"></div><div id="cErr" class="err"></div><button class="btn" type="submit">Issue credential</button></form></div>'+
+  '<div class="card white"><h3>Credentials</h3><div class="tw" style="margin-top:1rem"><table><thead><tr><th>ID</th><th>Identity</th><th>Type</th><th>Issuer</th><th>Status</th><th></th></tr></thead><tbody>'+(rows||'<tr><td colspan="6"><div class="empty">No credentials yet.</div></td></tr>')+'</tbody></table></div></div></div>';
+};
+
+V.access=function(){
+  var m=me(), mineCreds=S.credentials.filter(function(c){var i=I(c.identityId);return i&&i.ownerId===m.id&&c.status==='valid';});
+  var grants=S.grants.slice().reverse().filter(function(g){var i=I(g.identityId);return m.role==='Admin'||(i&&i.ownerId===m.id)||g.verifierId===m.id;});
+  var rows=grants.map(function(g){ var i=I(g.identityId), c=C(g.credentialId), own=i&&i.ownerId===m.id;
+    return '<tr><td class="mono">'+g.id+'</td><td>'+esc(i?i.alias:'?')+' · '+esc(c?c.type:'?')+'</td><td>'+esc(U(g.verifierId)?U(g.verifierId).name:'?')+'</td><td>'+bd(g.active?'active':'revoked')+'</td><td class="right">'+(own&&g.active?'<button class="btn ghost sm" data-act="gr-revoke" data-id="'+g.id+'" type="button">Revoke</button>':'')+'</td></tr>';
+  }).join('');
+  return '<div class="grid g2" style="align-items:start"><div class="card"><h3>Grant a verifier access</h3><p>Owner role. Granting shares the claim and its salt for one credential, so the verifier can check the commitment.</p><form id="grForm" novalidate><div class="field"><label for="gCred">Credential</label><select id="gCred">'+(mineCreds.map(function(c){return '<option value="'+c.id+'">'+c.id+' · '+esc(c.type)+' · '+esc(I(c.identityId).alias)+'</option>';}).join('')||'<option value="">No valid credentials of yours</option>')+'</select></div><div class="field"><label for="gVer">Verifier</label><select id="gVer">'+S.users.filter(function(u){return u.role==='Verifier'&&u.active;}).map(function(u){return '<option value="'+u.id+'">'+esc(u.name)+'</option>';}).join('')+'</select></div><div id="gErr" class="err"></div><button class="btn" type="submit">Grant access</button></form></div>'+
+  '<div class="card white"><h3>Access grants</h3><div class="tw" style="margin-top:1rem"><table><thead><tr><th>ID</th><th>Credential</th><th>Verifier</th><th>Status</th><th></th></tr></thead><tbody>'+(rows||'<tr><td colspan="5"><div class="empty">No grants visible to you.</div></td></tr>')+'</tbody></table></div></div></div>';
+};
+
+V.verify=function(){
+  var m=me(), gs=S.grants.filter(function(g){return g.verifierId===m.id&&g.active;});
+  var recs=S.verifications.slice().reverse().filter(function(r){var i=I(r.identityId);return m.role==='Admin'||r.verifierId===m.id||(i&&i.ownerId===m.id);});
+  var last=V._last&&S.verifications.find(function(r){return r.id===V._last;});
+  function res(r){ return '<div class="card" style="margin-top:1.25rem"><div class="card-head"><div><h3>Verification '+r.id+'</h3><p>Claim checked: “'+esc(r.claimed)+'”</p></div>'+bd(r.result)+'</div><ul class="checks">'+r.steps.map(function(s){return '<li class="'+(s.pass?'pass':'fail')+'"><span class="ic">'+(s.pass?'✓':'✕')+'</span><span><b>'+esc(s.label)+'</b><br><span class="muted">'+esc(s.detail)+'</span></span></li>';}).join('')+'</ul></div>'; }
+  return '<div class="grid g2" style="align-items:start"><div class="card"><h3>Request verification</h3><p>Verifier role. You can only verify credentials an owner has shared with you.</p><form id="vForm" novalidate><div class="field"><label for="vGrant">Shared credential</label><select id="vGrant">'+(gs.map(function(g){var c=C(g.credentialId);return '<option value="'+g.id+'">'+esc(I(g.identityId).alias)+' · '+esc(c?c.type:'?')+' · '+g.id+'</option>';}).join('')||'<option value="">Nothing shared with you</option>')+'</select></div><div class="field"><label for="vClaim">Claim to verify</label><input id="vClaim" maxlength="80" autocomplete="off" placeholder="Quote the claim exactly"><p class="hint">Try a wrong value to see the commitment check fail.</p></div><div id="vErr" class="err"></div><button class="btn" type="submit">Run verification</button></form></div>'+
+  '<div class="card white"><h3>History</h3><div class="tw" style="margin-top:1rem"><table><thead><tr><th>ID</th><th>Credential</th><th>Verifier</th><th>Result</th></tr></thead><tbody>'+(recs.map(function(r){return '<tr><td><a href="#verify" data-act="vr-open" data-id="'+r.id+'" class="mono">'+r.id+'</a></td><td class="mono">'+r.credentialId+'</td><td>'+esc(U(r.verifierId)?U(r.verifierId).name:'?')+'</td><td>'+bd(r.result)+'</td></tr>';}).join('')||'<tr><td colspan="4"><div class="empty">No verifications visible to you.</div></td></tr>')+'</tbody></table></div></div></div>'+(last?res(last):'');
+};
+
+V.ledger=function(){
+  var v=BL.verifyChain(S.blocks), bad={}; v.issues.forEach(function(i){(bad[i.index]=bad[i.index]||[]).push(i.reason);});
+  var blocks=S.blocks.map(function(b,i){ var d=b.data, isBad=!!bad[i];
+    var fields=Object.keys(d).filter(function(k){return k!=='type';}).map(function(k){return '<div><dt>'+esc(k)+'</dt><dd class="mono" style="font-size:.78rem">'+esc(String(d[k]).length>44?BL.short(String(d[k]),14):d[k])+'</dd></div>';}).join('');
+    return '<article class="block'+(i===0?' genesis':'')+(isBad?' bad':'')+'"><h4>Block #'+i+(isBad?'<span class="badge bad">Invalid</span>':'<span class="badge ok">Valid</span>')+'</h4><dl><div><dt>Event</dt><dd><b>'+esc(d.type)+'</b></dd></div>'+fields+'<div><dt>Time</dt><dd>'+esc(BL.fmtTime(b.timestamp))+'</dd></div><div><dt>Hash</dt><dd><span class="hash">'+esc(b.hash)+'</span></dd></div>'+(isBad?'<div><dt>Why</dt><dd style="color:var(--bad)">'+esc(bad[i].join('; '))+'</dd></div>':'')+'</dl>'+(i>0?'<div class="row" style="margin-top:.8rem"><button class="btn danger sm" data-act="tamper" data-i="'+i+'" type="button">Tamper</button></div>':'')+'</article>';
+  }).join('');
+  return '<div class="notice '+(v.ok?'ok':'bad')+'" role="status"><h4>'+(v.ok?'Ledger verified':'Ledger tampered')+'</h4>'+(v.ok?'All '+S.blocks.length+' blocks are consistent.':'First failure at block #'+v.issues[0].index+': '+esc(v.issues[0].reason)+'. Verifications will now fail their integrity check.')+'</div>'+
+  '<div class="row" style="margin:1rem 0"><button class="btn purple sm" data-act="repair" type="button">Repair from healthy copy</button><span class="hint" style="margin:0">Tamper and repair are Admin-only demonstrations. Every block holds only hashes and identifiers, never personal data.</span></div><div class="chain">'+blocks+'</div>';
+};
+
+V.learning=function(){
+  return '<div style="max-width:820px">'+[['Decentralised identifiers (DIDs)','A DID names an identity without a central registry. Here it is derived from the identity’s commitment. Real DIDs resolve to documents with public keys.'],['Hash commitments','A commitment is a hash of the data plus a random salt. It proves later that the data was fixed at registration, without revealing it. Without the salt, short or guessable values cannot be brute-forced from the hash.'],['Selective disclosure','The owner shares one claim and its salt with one verifier. The rest of the wallet stays private. Real systems use zero-knowledge proofs to prove statements such as “over 18” without showing a birth date.'],['Issuers and trust','A ledger cannot tell whether a degree is real. It only shows who vouched for it. That is why issuer approval and revocation matter: trust in the issuer is the actual root of trust.'],['Revocation and expiry','Credentials can be revoked or can expire. A verifier must check both, plus the issuer’s own standing, every time.'],['What this simulation leaves out','Real digital signatures and key management, secure storage, zero-knowledge proofs, a distributed ledger and privacy law compliance. Hashing does not prove the source information is true. Role checks are UI-level only.']].map(function(i){return '<details class="acc"><summary>'+i[0]+'</summary><div>'+i[1]+'</div></details>';}).join('')+'</div>';
+};
+V.config=function(){
+  return '<div class="grid g2" style="align-items:start"><div class="card white"><h3>Users</h3><p>Admin only. Inactive users cannot act.</p><div class="tw"><table><thead><tr><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>'+S.users.map(function(u){return '<tr><td>'+esc(u.name)+'</td><td><span class="badge">'+u.role+'</span></td><td>'+bd(u.active?'active':'revoked').replace('revoked','inactive')+'</td><td class="right"><button class="btn ghost sm" data-act="u-toggle" data-id="'+u.id+'" type="button">'+(u.active?'Deactivate':'Activate')+'</button></td></tr>';}).join('')+'</tbody></table></div></div>'+
+  '<div class="card"><h3>Data</h3><p>State is saved in this browser only.</p><div class="row"><button class="btn ghost" data-act="export" type="button">Copy ledger as JSON</button><button class="btn danger" data-act="reset" type="button">Reset to demo data</button></div><div class="notice warn" style="margin-top:1rem"><h4>Teaching simulation</h4>Not a production identity network. Signatures are simulated SHA-256 values and browser storage is not secure.</div></div></div>';
+};
+
+/* ---------- router and events ---------- */
+var ROUTES=['overview','identities','issuers','credentials','access','verify','ledger','learning','config'], LABELS={overview:'Overview',identities:'Identities',issuers:'Issuers',credentials:'Credentials',access:'Access',verify:'Verify',ledger:'Ledger',learning:'Learning',config:'Settings'};
+$('#tabs').innerHTML=ROUTES.map(function(r){return '<a href="#'+r+'" data-r="'+r+'">'+LABELS[r]+'</a>';}).join('');
+function route(){ var r=(location.hash||'#overview').slice(1); return ROUTES.indexOf(r)>=0?r:'overview'; }
+function render(){
+  if(!U(S.actingAs)) S.actingAs=S.users[0].id;
+  var r=route(); $('#view').innerHTML=V[r]();
+  $('#actAs').innerHTML=S.users.map(function(u){return '<option value="'+u.id+'"'+(u.id===S.actingAs?' selected':'')+'>'+esc(u.name)+' · '+u.role+(u.active?'':' (inactive)')+'</option>';}).join('');
+  BL.$$('#tabs a').forEach(function(a){a.classList.toggle('on',a.dataset.r===r);});
+  document.title=LABELS[r]+' · Blockchain Identity Verification · BlockLab';
+}
+window.addEventListener('hashchange',function(){render();window.scrollTo({top:0});});
+$('#actAs').addEventListener('change',function(e){ S.actingAs=e.target.value; save(); BL.toast('Now acting as '+me().name+' ('+me().role+')'); render(); });
+var view=$('#view');
+
+BL.on(view,'click','[data-act]',function(e,el){
+  var a=el.dataset.act, id=el.dataset.id, m=me();
+  if(a==='vr-open'){ V._last=id; if(route()==='verify'){ e.preventDefault(); render(); } return; }
+  if(a==='export') return BL.copy(JSON.stringify(S.blocks,null,2));
+  if(a==='reset'){ freshState(); save(); BL.toast('Demo data restored','ok'); return render(); }
+  var admin=['iss-approve','iss-revoke','tamper','repair','u-toggle'];
+  if(admin.indexOf(a)>=0&&!gate('Admin','this action')) return;
+  if(a==='iss-approve'){ setIssuer(m,ISS(id),'approved'); }
+  if(a==='iss-revoke'){ setIssuer(m,ISS(id),'revoked'); }
+  if(a==='u-toggle'){ var u=U(id); if(id===S.actingAs) return BL.toast('Switch identity before deactivating this account.','bad'); u.active=!u.active; log(m.name+(u.active?' activated ':' deactivated ')+u.name+'.'); }
+  if(a==='tamper'){ var b=S.blocks[+el.dataset.i]; if(b.data.commitment) b.data.commitment=b.data.commitment.slice(0,-1)+(b.data.commitment.slice(-1)==='0'?'1':'0'); else b.data.tampered=true; log(m.name+' tampered with block #'+b.index+'.'); BL.toast('Block #'+b.index+' altered without re-hashing','bad'); }
+  if(a==='repair'){ S.blocks=BL.clone(S.trusted); log(m.name+' restored the ledger from the healthy copy.'); BL.toast('Ledger repaired','ok'); }
+  if(a==='cr-revoke'){ if(!gate('Issuer','revoking credentials')) return; var cr=C(id), iss=myIssuer(m); if(!iss||iss.id!==cr.issuerId) return BL.toast('Only the issuing organisation can revoke this credential.','bad'); revokeCredential(m,cr); BL.toast('Credential revoked','ok'); }
+  if(a==='gr-revoke'){ if(!gate('Owner','revoking access')) return; var g=S.grants.find(function(x){return x.id===id;}); if(I(g.identityId).ownerId!==m.id) return BL.toast('Only the identity owner can revoke access.','bad'); revokeAccess(m,g); BL.toast('Access revoked','ok'); }
+  save(); render();
+});
+view.addEventListener('submit',function(e){
+  e.preventDefault(); var id=e.target.id, m=me();
+  if(id==='idForm'){
+    if(!gate('Owner','registering an identity')) return;
+    var name=$('#iName').value.trim().replace(/\s+/g,' '), dob=$('#iDob').value, alias=$('#iAlias').value.trim().toLowerCase(), err='';
+    if(name.length<2) err='Enter a name.';
+    else if(!/^\d{4}-\d{2}-\d{2}$/.test(dob)||dob>today()||dob<'1900-01-01') err='Enter a valid date of birth in the past.';
+    else if(!/^[a-z0-9][a-z0-9-]{2,23}$/.test(alias)) err='Alias must be 3–24 lowercase letters, digits or dashes.';
+    else if(S.identities.some(function(x){return x.alias===alias;})) err='That alias is taken.';
+    $('#iErr').textContent=err; if(err) return;
+    registerIdentity(m,{name:name,dob:dob,alias:alias}); save(); BL.toast('Identity registered','ok'); return render();
+  }
+  if(id==='issForm'){
+    if(!gate('Admin','registering issuers')) return;
+    var n=$('#sName').value.trim().replace(/\s+/g,' '), uid=$('#sUser').value, er='';
+    if(n.length<3) er='Enter the organisation name.'; else if(!uid) er='Link an issuer account.'; else if(S.issuers.some(function(x){return x.name.toLowerCase()===n.toLowerCase();})) er='That issuer already exists.';
+    $('#sErr').textContent=er; if(er) return;
+    registerIssuer(m,n,uid); save(); BL.toast('Issuer registered as pending','ok'); return render();
+  }
+  if(id==='crForm'){
+    if(!gate('Issuer','issuing credentials')) return;
+    var iss=myIssuer(m); if(!iss){ $('#cErr').textContent='No issuer organisation is linked to your account.'; return; }
+    if(iss.status!=='approved'){ $('#cErr').textContent='Your issuer is '+iss.status+'. An Admin must approve it first.'; return; }
+    var idn=$('#cId').value, val=$('#cVal').value.trim(), exp=$('#cExp').value, e2='';
+    if(!I(idn)) e2='Choose an identity.'; else if(val.length<2) e2='Enter the claim text.'; else if(exp&&exp<=today()) e2='Expiry must be in the future.';
+    $('#cErr').textContent=e2; if(e2) return;
+    var cr=issueCredential(m,iss,{identityId:idn,type:$('#cType').value,value:val,expires:exp}); save(); BL.toast(cr.id+' issued','ok'); return render();
+  }
+  if(id==='grForm'){
+    if(!gate('Owner','granting access')) return;
+    var cid=$('#gCred').value, vid=$('#gVer').value;
+    if(!cid||!vid){ $('#gErr').textContent='Choose a credential and a verifier.'; return; }
+    if(S.grants.some(function(g){return g.credentialId===cid&&g.verifierId===vid&&g.active;})){ $('#gErr').textContent='That verifier already has access.'; return; }
+    grantAccess(m,cid,vid); save(); BL.toast('Access granted','ok'); return render();
+  }
+  if(id==='vForm'){
+    if(!gate('Verifier','requesting verification')) return;
+    var gid=$('#vGrant').value, claim=$('#vClaim').value.trim(), gr=S.grants.find(function(x){return x.id===gid;});
+    if(!gr||!gr.active){ $('#vErr').textContent='Access has not been granted to you for any credential.'; return; }
+    if(!claim){ $('#vErr').textContent='Enter the claim you want to verify.'; return; }
+    var r=runVerification(m,gr,claim); V._last=r.id; save(); BL.toast('Verification '+r.result,r.result==='verified'?'ok':'bad'); return render();
+  }
+});
+
+function load(){
+  var s=BL.store.get(KEY,null);
+  if(s&&s.users&&s.blocks&&s.trusted&&s.wallet) S=s; else { freshState(); save(); }
+}
+BL.shell({mod:5}); load(); render();
+})();
+</script>
+</body>
+</html>

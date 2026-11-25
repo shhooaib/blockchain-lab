@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Algorithm Comparison · Password Security Lab · BlockLab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&family=Sometype+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/theme.css">
+</head>
+<body data-base="../" data-page="comparison">
+<div id="nav"></div>
+<div class="subnav"><div class="subnav-in" role="navigation" aria-label="Experiments"><a href="index.html">Overview</a><a href="hashing.html">01 Hashing</a><a href="salt.html">02 Salting</a><a href="verification.html">03 Verification</a><a href="comparison.html" class="on">04 Comparison</a><a href="avalanche.html">05 Avalanche</a><a href="security.html">06 Analysis</a></div></div>
+<main id="main">
+  <div class="wrap mhead">
+    <p class="crumbs"><a href="../index.html">Hub</a> / <a href="index.html">Module 02</a> / Algorithm Comparison</p>
+    <p class="kicker">Experiment 04</p>
+    <h1>Algorithm comparison</h1>
+    <p class="lead">General-purpose hashes are built to be fast. Password hashes are built to be slow and tunable. This page times real implementations in your browser: SHA-1, SHA-256, SHA-512, SHA3-256 and a password hash.</p>
+  </div>
+  <div class="wrap" style="padding-bottom:clamp(48px,7vw,96px)">
+
+    <div class="notice warn" style="margin-bottom:1.5rem"><h4>Performance depends on your environment</h4>Timings vary with browser, device and load. Treat the numbers as a demonstration, not a benchmark. <span id="engineNote"></span></div>
+    <div class="card white">
+      <div class="card-head"><div><h3>Live measurements</h3><p>SHA3-256 runs in JavaScript, the SHA-2 family uses Web Crypto, and the slow hash is bcrypt when its library loads.</p></div><span class="badge">Browser timings</span></div>
+      <form id="compareForm">
+        <div class="form-row">
+          <div class="field"><label for="compareInput">Sample input</label><input id="compareInput" value="correct horse battery staple" autocomplete="off"></div>
+          <div class="field"><label for="bcryptCost">Cost factor</label><select id="bcryptCost"><option value="8">8 (faster demo)</option><option value="10" selected>10 (typical)</option><option value="11">11 (slower)</option></select></div>
+        </div>
+        <button class="btn" id="compareBtn" type="submit">Run benchmark</button>
+      </form>
+      <div id="compareResults"></div>
+    </div>
+    <div class="notice" style="margin-top:1.5rem"><h4>How to read the table</h4>SHA-1, SHA-256, SHA-512 and SHA3-256 suit integrity checks, and the same speed makes password guessing cheap. A password hash adds a built-in salt and a cost factor you can raise as hardware improves.</div>
+<nav class="row between" style="margin-top:2.5rem" aria-label="Experiment sequence">
+  <a class="btn ghost" href="verification.html">← Verification</a>
+  <a class="btn" href="avalanche.html">Avalanche <span class="arrow">→</span></a>
+</nav>
+  </div>
+</main>
+<div id="foot"></div>
+<script src="../js/common.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bcryptjs/2.4.3/bcrypt.min.js"></script>
+<script src="m2.js"></script>
+</body>
+</html>

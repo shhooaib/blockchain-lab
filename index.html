@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blockchain Sim Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&family=Sometype+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/theme.css">
+<style>
+.hero{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:clamp(32px,5vw,72px);align-items:center;padding-block:clamp(48px,7vw,104px)}
+.hero h1{font-size:clamp(3rem,8.4vw,7.2rem);line-height:.92}
+.hero h1 em{font-style:normal;color:var(--purple)}
+.hero .lead{margin-top:1.8rem}
+.hero .row{margin-top:2.2rem}
+.hero-art{width:100%;height:auto;display:block;filter:drop-shadow(0 18px 40px rgba(89,43,155,.12))}
+.hero-art .win-f{fill:#fff;stroke:rgba(89,43,155,.14)}
+.hero-art .bar-f{fill:var(--band)}
+.hero-art .blk{fill:var(--glass);fill:rgba(89,43,155,.04);stroke:rgba(89,43,155,.16);stroke-width:1.5}
+.hero-art .blk.hot{fill:rgba(241,98,33,.06);stroke:var(--orange);stroke-width:2}
+.hero-art .no{fill:var(--purple)}
+.hero-art .no-t{fill:#fff;font:800 15px var(--f-head)}
+.hero-art .t1{fill:var(--ink);font:800 15px var(--f-head);letter-spacing:-.02em}
+.hero-art .t2{fill:var(--body);font:400 12px var(--f-mono)}
+.hero-art .t3{fill:var(--purple);font:700 10px var(--f-mono);letter-spacing:.1em}
+.hero-art .ok-c{fill:var(--ok)}
+.hero-art .link{stroke:var(--orange);stroke-width:2.5;stroke-dasharray:5 5;fill:none;animation:flow 1.2s linear infinite}
+.hero-art .head{fill:var(--orange)}
+@keyframes flow{to{stroke-dashoffset:-10}}
+@media (max-width:900px){.hero{grid-template-columns:minmax(0,1fr)}.hero-art{max-width:520px;margin-inline:auto}}
+.marquee{background:var(--band);border-block:1px solid var(--line);overflow:hidden;padding-block:1.4rem}
+.marquee-track{display:flex;gap:80px;width:max-content;animation:slide 38s linear infinite;font:800 1.1rem var(--f-head);text-transform:uppercase;letter-spacing:.06em;color:var(--ink);opacity:.2}
+@keyframes slide{to{transform:translateX(-50%)}}
+.mod{display:flex;flex-direction:column;gap:.8rem;color:inherit;min-height:100%;position:relative}
+.mod:hover{color:inherit}
+.mod .no{font:800 clamp(3.2rem,6vw,4.6rem) var(--f-head);letter-spacing:-.06em;color:var(--purple);line-height:.9}
+.mod .go{margin-top:auto;display:flex;align-items:center;justify-content:space-between;font:800 12px var(--f-head);text-transform:uppercase;letter-spacing:.06em;color:var(--orange);padding-top:.6rem}
+.mod:hover .go .arrow{transform:rotate(0)}
+.mod .go .arrow{transition:transform .25s}
+.menu-dark{background:var(--night);border-color:transparent;color:rgba(255,255,255,.7)}
+.menu-dark h3{color:#fff}.menu-dark .kicker{color:#b99ae8}.menu-dark ol{padding-left:1.1rem;margin:.6rem 0 0}.menu-dark li{margin-bottom:.4rem}
+.ico{width:60px;height:60px;border-radius:18px;background:#fff;border:1px solid var(--glass-line);display:grid;place-items:center;flex:none;transition:transform .25s}
+.mod:hover .ico{transform:rotate(-6deg) scale(1.06)}
+.ico svg{width:36px;height:36px;fill:none;stroke:var(--purple);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.ico svg .o{stroke:var(--orange)}.ico svg .fo{fill:var(--orange);stroke:none}
+.chain-strip{width:100%;height:auto;display:block;margin:0 0 2.5rem}
+.chain-strip .b{fill:#fff;stroke:rgba(89,43,155,.18);stroke-width:1.5}
+.chain-strip .b.hot{stroke:var(--orange);stroke-width:2}
+.chain-strip .l{stroke:var(--purple);stroke-width:2;stroke-dasharray:4 4;opacity:.55;animation:flow 1.2s linear infinite}
+.chain-strip .h{fill:var(--line)}.chain-strip .h.p{fill:var(--purple);opacity:.55}.chain-strip .h.o{fill:var(--orange)}
+.net-art{position:absolute;right:max(2rem,4vw);bottom:44px;width:min(30vw,380px);height:auto;z-index:0;pointer-events:none}
+.net-art .e{stroke:rgba(255,255,255,.16);stroke-width:1.5;fill:none}
+.net-art .e.hot{stroke:var(--orange);stroke-width:2;stroke-dasharray:5 6;animation:flow 1.4s linear infinite}
+.net-art .n{fill:#2a1b47;stroke:rgba(185,154,232,.55);stroke-width:2}
+.net-art .n.hot{fill:var(--orange);stroke:none}
+.net-art .c{fill:var(--purple);stroke:#b99ae8;stroke-width:2}
+.net-art text{fill:rgba(255,255,255,.55);font:700 11px var(--f-mono);letter-spacing:.1em}
+@media (max-width:900px){.net-art{display:none}}
+.band-dark{background:var(--night);position:relative;overflow:hidden;color:#fff}
+.band-dark::after{content:'';position:absolute;right:-140px;bottom:-180px;width:560px;height:560px;border-radius:50%;background:radial-gradient(circle,rgba(89,43,155,.2),transparent 65%);pointer-events:none}
+.band-dark .wrap{position:relative;z-index:1}
+.band-dark h2{color:#fff;font-size:clamp(2.4rem,8vw,7rem);line-height:.95}
+.band-dark p{color:rgba(255,255,255,.6)}
+.band-dark .big{font:800 clamp(1.6rem,3.6vw,2.7rem) var(--f-head);letter-spacing:-.04em;color:var(--orange)}
+</style>
+</head>
+<body data-base="">
+<div id="nav"></div>
+<main id="main">
+  <section class="wrap hero">
+    <div>
+      <p class="kicker">Blockchain technology · interactive simulations</p>
+      <h1>Blockchain <em>Sim Lab</em></h1>
+      <p class="lead">Five hands-on simulations in one place: a payroll ledger, a password security lab, an Ethereum transaction simulator, a consortium network and digital identity verification.</p>
+      <div class="row">
+        <a class="btn lg" href="#modules">Open the menu <span class="arrow">→</span></a>
+      </div>
+    </div>
+    <svg class="hero-art" viewBox="0 0 520 440" role="img" aria-label="Three linked blocks, each holding a hash and the previous block's hash">
+      <rect class="win-f" x="10" y="10" width="500" height="420" rx="28"/>
+      <path class="bar-f" d="M10 38a28 28 0 0 1 28-28h444a28 28 0 0 1 28 28v18H10z"/>
+      <circle cx="38" cy="33" r="6" fill="#ff5f56"/><circle cx="58" cy="33" r="6" fill="#ffbd2e"/><circle cx="78" cy="33" r="6" fill="#27c93f"/>
+      <text class="t3" x="480" y="37" text-anchor="end">LEDGER · LIVE</text>
+
+      <rect class="blk" x="40" y="76" width="440" height="94" rx="20"/>
+      <circle class="no" cx="78" cy="123" r="22"/><text class="no-t" x="78" y="128.5" text-anchor="middle">0</text>
+      <text class="t1" x="116" y="104">Genesis block</text>
+      <text class="t2" x="116" y="126">hash  00a3f9c2…e81d</text>
+      <text class="t2" x="116" y="147">prev  0000000000…0000</text>
+      <circle class="ok-c" cx="448" cy="102" r="10"/><path d="M443 102l4 4 7-8" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+
+      <path class="link" d="M260 170V192"/><path class="head" d="M252 190h16l-8 10z"/>
+
+      <rect class="blk" x="40" y="200" width="440" height="94" rx="20"/>
+      <circle class="no" cx="78" cy="247" r="22"/><text class="no-t" x="78" y="252.5" text-anchor="middle">1</text>
+      <text class="t1" x="116" y="228">Asha Rao · 45,000.00</text>
+      <text class="t2" x="116" y="250">hash  00b71e40…4c07</text>
+      <text class="t2" x="116" y="271">prev  00a3f9c2…e81d</text>
+      <circle class="ok-c" cx="448" cy="226" r="10"/><path d="M443 226l4 4 7-8" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+
+      <path class="link" d="M260 294V316"/><path class="head" d="M252 314h16l-8 10z"/>
+
+      <rect class="blk hot" x="40" y="324" width="440" height="94" rx="20"/>
+      <circle class="no" cx="78" cy="371" r="22" style="fill:var(--orange)"/><text class="no-t" x="78" y="376.5" text-anchor="middle">2</text>
+      <text class="t1" x="116" y="352">New block · mining…</text>
+      <text class="t2" x="116" y="374">hash  00d5…</text>
+      <text class="t2" x="116" y="395">prev  00b71e40…4c07</text>
+      <text class="t3" x="480" y="350" text-anchor="end">PENDING</text>
+    </svg>
+  </section>
+
+  <div class="marquee" aria-hidden="true"><div class="marquee-track" id="marq"></div></div>
+
+  <section class="sec" id="modules">
+    <div class="wrap">
+      <p class="kicker">Module menu</p>
+      <h2 style="margin-bottom:3rem">Pick a module</h2>
+      <div class="grid g3" id="menu"></div>
+    </div>
+  </section>
+
+  <section class="sec band">
+    <div class="wrap">
+      <p class="kicker">At a glance</p>
+      <h2 style="margin-bottom:3rem">What is inside</h2>
+      <svg class="chain-strip" viewBox="0 0 1200 96" role="img" aria-label="A row of hash-linked blocks"><rect class="b" x="0" y="14" width="140" height="68" rx="14"/><rect class="h p" x="14" y="28" width="62" height="7" rx="3.5"/><rect class="h" x="14" y="43" width="104" height="6" rx="3"/><rect class="h" x="14" y="57" width="84" height="6" rx="3"/><circle class="h p" cx="120" cy="31" r="5"/><path class="l" d="M140 48H176"/><rect class="b" x="176" y="14" width="140" height="68" rx="14"/><rect class="h p" x="190" y="28" width="62" height="7" rx="3.5"/><rect class="h" x="190" y="43" width="104" height="6" rx="3"/><rect class="h" x="190" y="57" width="84" height="6" rx="3"/><circle class="h p" cx="296" cy="31" r="5"/><path class="l" d="M316 48H352"/><rect class="b" x="352" y="14" width="140" height="68" rx="14"/><rect class="h p" x="366" y="28" width="62" height="7" rx="3.5"/><rect class="h" x="366" y="43" width="104" height="6" rx="3"/><rect class="h" x="366" y="57" width="84" height="6" rx="3"/><circle class="h p" cx="472" cy="31" r="5"/><path class="l" d="M492 48H528"/><rect class="b" x="528" y="14" width="140" height="68" rx="14"/><rect class="h p" x="542" y="28" width="62" height="7" rx="3.5"/><rect class="h" x="542" y="43" width="104" height="6" rx="3"/><rect class="h" x="542" y="57" width="84" height="6" rx="3"/><circle class="h p" cx="648" cy="31" r="5"/><path class="l" d="M668 48H704"/><rect class="b" x="704" y="14" width="140" height="68" rx="14"/><rect class="h p" x="718" y="28" width="62" height="7" rx="3.5"/><rect class="h" x="718" y="43" width="104" height="6" rx="3"/><rect class="h" x="718" y="57" width="84" height="6" rx="3"/><circle class="h p" cx="824" cy="31" r="5"/><path class="l" d="M844 48H880"/><rect class="b" x="880" y="14" width="140" height="68" rx="14"/><rect class="h p" x="894" y="28" width="62" height="7" rx="3.5"/><rect class="h" x="894" y="43" width="104" height="6" rx="3"/><rect class="h" x="894" y="57" width="84" height="6" rx="3"/><circle class="h p" cx="1000" cy="31" r="5"/><path class="l" d="M1020 48H1056"/><rect class="b hot" x="1056" y="14" width="140" height="68" rx="14"/><rect class="h o" x="1070" y="28" width="62" height="7" rx="3.5"/><rect class="h" x="1070" y="43" width="104" height="6" rx="3"/><rect class="h" x="1070" y="57" width="84" height="6" rx="3"/><circle class="h o" cx="1176" cy="31" r="5"/></svg>
+      <div class="grid g5">
+        <div class="card tilt"><div class="stat">5</div><div class="stat-l">Modules</div></div>
+        <div class="card tilt"><div class="stat">0</div><div class="stat-l">Servers needed</div></div>
+        <div class="card tilt"><div class="stat">4</div><div class="stat-l">Hash-linked ledgers</div></div>
+        <div class="card tilt"><div class="stat">2</div><div class="stat-l">Hash families · SHA-2, SHA-3</div></div>
+        <div class="card tilt"><div class="stat">1</div><div class="stat-l">Shared theme</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band-dark" style="padding-block:clamp(72px,10vw,150px)">
+    <svg class="net-art" viewBox="0 0 520 420" aria-hidden="true">
+      <path class="e" d="M260 210L110 90M260 210L420 70M260 210L450 250M260 210L130 330M260 210L330 370M110 90L420 70M420 70L450 250M450 250L330 370M330 370L130 330M130 330L110 90"/>
+      <path class="e hot" d="M260 210L420 70M260 210L130 330"/>
+      <circle class="n" cx="110" cy="90" r="20"/><circle class="n hot" cx="420" cy="70" r="16"/><circle class="n" cx="450" cy="250" r="22"/><circle class="n" cx="130" cy="330" r="18"/><circle class="n" cx="330" cy="370" r="20"/>
+      <circle class="c" cx="260" cy="210" r="34"/>
+      <path d="M248 210l8 8 16-17" stroke="#fff" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="260" y="262" text-anchor="middle">ORDERER</text><text x="110" y="132" text-anchor="middle">ORG A</text><text x="420" y="104" text-anchor="middle">ORG B</text><text x="450" y="292" text-anchor="middle">ORG C</text>
+    </svg>
+    <div class="wrap">
+      <p class="kicker" style="color:#b99ae8">Start here</p>
+      <h2>Begin with the ledger.</h2>
+      <p style="max-width:52ch;margin-top:1.5rem">Module 01 is the shortest path to the core idea: change one block and every link after it breaks.</p>
+      <div class="big" style="margin-top:2rem">Module 01 · Salary Blockchain</div>
+      <div class="row" style="margin-top:2rem"><a class="btn lg" href="m1/index.html">Open Module 01 <span class="arrow">→</span></a></div>
+    </div>
+  </section>
+</main>
+<footer class="foot-base"><div class="wrap"><span>BlockLab · Blockchain technology project activity</span><span>Educational simulations · Use fictional data only · Everything runs in your browser</span></div></footer>
+<script src="js/common.js"></script>
+<script>
+(function(){
+  var $=BL.$, esc=BL.esc;
+var ICONS={
+ 1:'<svg viewBox="0 0 48 48"><rect x="4" y="6" width="17" height="14" rx="4"/><rect x="27" y="28" width="17" height="14" rx="4"/><path class="o" d="M21 13h6a6 6 0 0 1 6 6v9"/><circle class="o" cx="12.5" cy="35" r="6"/><path class="o" d="M12.5 32.5v5M10.8 34.2h3.4"/></svg>',
+ 2:'<svg viewBox="0 0 48 48"><rect x="8" y="21" width="32" height="22" rx="6"/><path d="M15 21v-6a9 9 0 0 1 18 0v6"/><path class="o" d="M20 28l-1.5 10M27 28l-1.5 10M16.5 32h16M15.5 36h16"/></svg>',
+ 3:'<svg viewBox="0 0 48 48"><path d="M24 4l14 21-14 8-14-8z"/><path class="o" d="M10 29l14 8 14-8M24 44l-14-12M24 44l14-12"/></svg>',
+ 4:'<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="6"/><circle cx="8" cy="10" r="4"/><circle cx="40" cy="10" r="4"/><circle cx="8" cy="38" r="4"/><circle cx="40" cy="38" r="4"/><path class="o" d="M20 20L11 13M28 20l9-7M20 28l-9 7M28 28l9 7"/></svg>',
+ 5:'<svg viewBox="0 0 48 48"><rect x="4" y="9" width="40" height="30" rx="6"/><circle cx="17" cy="21" r="5"/><path d="M9 33c1-4 4-6 8-6s7 2 8 6"/><path class="o" d="M30 20h9M30 27h6"/><circle class="fo" cx="38" cy="33" r="1.6"/></svg>'
+};
+  $('#menu').innerHTML=BL.MODS.map(function(m){
+    return '<a class="card hover tilt mod rv" href="'+m.slug+'/index.html" aria-label="Module '+m.n+': '+esc(m.name)+'">'+
+      '<div class="row between" style="flex-wrap:nowrap"><span class="no">'+String(m.n).padStart(2,'0')+'</span><span class="ico" aria-hidden="true">'+ICONS[m.n]+'</span></div>'+
+      '<span class="badge" style="align-self:flex-start">'+esc(m.tag)+'</span><h3 style="margin-top:-.2rem">'+esc(m.name)+'</h3><p style="margin:0">'+esc(m.desc)+'</p>'+
+      '<div class="go"><span class="mono" style="color:var(--muted);font-weight:700">'+esc(m.stat)+'</span><span>Open <span class="arrow">→</span></span></div></a>';
+  }).join('')+
+  '<div class="card menu-dark rv"><p class="kicker">Suggested order</p><h3>Learn it in sequence</h3><ol><li>Ledger basics</li><li>Hashing and passwords</li><li>Transactions and gas</li><li>Permissioned networks</li><li>Identity on a ledger</li></ol></div>';
+  var names=['Hash-linked blocks','Salting','bcrypt','Gas fees','Endorsement policy','Credentials','Tamper detection','Wallets','Consensus','Verification'], t='';
+  for(var i=0;i<2;i++) names.forEach(function(n){ t+='<span>'+n+'</span>'; });
+  $('#marq').innerHTML=t;
+  BL.shell({mod:0});
+})();
+</script>
+</body>
+</html>

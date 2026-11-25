@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Salt Demonstration · Password Security Lab · BlockLab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&family=Sometype+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/theme.css">
+</head>
+<body data-base="../" data-page="salt">
+<div id="nav"></div>
+<div class="subnav"><div class="subnav-in" role="navigation" aria-label="Experiments"><a href="index.html">Overview</a><a href="hashing.html">01 Hashing</a><a href="salt.html" class="on">02 Salting</a><a href="verification.html">03 Verification</a><a href="comparison.html">04 Comparison</a><a href="avalanche.html">05 Avalanche</a><a href="security.html">06 Analysis</a></div></div>
+<main id="main">
+  <div class="wrap mhead">
+    <p class="crumbs"><a href="../index.html">Hub</a> / <a href="index.html">Module 02</a> / Salt Demonstration</p>
+    <p class="kicker">Experiment 02</p>
+    <h1>Salt demonstration</h1>
+    <p class="lead">Without a salt, two users who choose the same password store the same hash. A salt is a unique random value mixed in before hashing, so identical passwords produce different stored records.</p>
+  </div>
+  <div class="wrap" style="padding-bottom:clamp(48px,7vw,96px)">
+
+    <div class="card white">
+      <div class="card-head"><div><h3>Same password, different salts</h3><p>Each run draws two independent 128-bit values from <code>crypto.getRandomValues</code> and hashes salt + password with SHA-256.</p></div><span class="badge">Random salts</span></div>
+      <form id="saltForm"><label for="saltInput">Sample password</label>
+        <div class="row" style="flex-wrap:nowrap"><input id="saltInput" type="text" placeholder="Try: password123" autocomplete="off" value="password123"><button class="btn" id="saltBtn" type="submit" style="flex:none">Generate comparison</button></div>
+      </form>
+      <div id="saltResults"></div>
+    </div>
+    <div class="notice" style="margin-top:1.5rem"><h4>Why salt matters</h4>A salt is stored next to the hash and is not secret. Its job is to make precomputed rainbow tables useless and to hide whether two accounts share a password. A salt does not turn a weak password into a strong one.</div>
+    <script>window.addEventListener('load',function(){document.getElementById('saltForm').dispatchEvent(new Event('submit',{cancelable:true}));});</script>
+<nav class="row between" style="margin-top:2.5rem" aria-label="Experiment sequence">
+  <a class="btn ghost" href="hashing.html">← Hashing</a>
+  <a class="btn" href="verification.html">Verification <span class="arrow">→</span></a>
+</nav>
+  </div>
+</main>
+<div id="foot"></div>
+<script src="../js/common.js"></script>
+<script src="m2.js"></script>
+</body>
+</html>

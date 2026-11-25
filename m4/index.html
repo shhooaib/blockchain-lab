@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Consortium Network Simulator · BlockLab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&family=Sometype+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/theme.css">
+<style>
+.stepbar{display:flex;gap:.4rem;flex-wrap:wrap}
+.node-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:.4rem;background:var(--muted)}
+.node-dot.on{background:var(--ok)}.node-dot.sync{background:var(--orange);animation:pulse 1s infinite}
+.denied{outline:2px dashed var(--bad);outline-offset:3px}
+</style>
+</head>
+<body data-base="../">
+<div id="nav"></div>
+<div class="subnav"><div class="subnav-in" role="navigation" aria-label="Simulator sections">
+  <span id="tabs" style="display:contents"></span>
+  <div class="acting"><label for="actAs">Acting as</label><select id="actAs"></select></div>
+</div></div>
+<main id="main">
+  <div class="wrap mhead">
+    <p class="crumbs"><a href="../index.html">Hub</a> / Module 04</p>
+    <p class="kicker">Module 04 · Permissioned network</p>
+    <h1>Consortium Network Simulator</h1>
+    <p class="lead">An electronics supply chain run by several organisations on a shared ledger. Switch identity to see what each role may do, collect endorsements under a policy, commit blocks, and watch peers fall behind and catch up. Inspired by Hyperledger Fabric, but not Fabric.</p>
+  </div>
+  <div class="wrap" style="padding-bottom:clamp(48px,7vw,96px)"><div id="view"></div></div>
+</main>
+<div id="foot"></div>
+<script src="../js/common.js"></script>
+<script>
+(function(){
+'use strict';
+var $=BL.$, esc=BL.esc, KEY='blocklab.m4.state.v2', S, syncTimers={};
+var ROLES=['Admin','Initiator','Endorser','Auditor'];
+var TYPES=['Component shipment','Quality inspection','Custody transfer','Payment release'];
+var ORG_KINDS=['Supplier','Manufacturer','Logistics','Retailer'];
+
+/* ---------- lookups ---------- */
+function O(id){ return S.orgs.find(function(o){return o.id===id;}); }
+function M(id){ return S.members.find(function(m){return m.id===id;}); }
+function me(){ return M(S.actingAs)||S.members[0]; }
+function uid(p){ return p+'-'+BL.randHex(3); }
+function biz(){ return S.orgs.filter(function(o){return !o.operator;}); }
+function log(msg){ S.activity.unshift({ts:new Date().toISOString(),msg:msg}); S.activity=S.activity.slice(0,40); }
+function save(){ BL.store.set(KEY,S); }
+function tip(){ return S.blocks.length; }
+function req(tx){ var n=tx.endorsers.length, p=S.settings.policy; return p==='all'?n:p==='any'?1:p==='two'?Math.min(2,n):Math.floor(n/2)+1; }
+function evalTx(tx){
+  if(tx.status==='committed') return;
+  var e=tx.votes.filter(function(v){return v.decision==='endorse';}).length, r=tx.votes.filter(function(v){return v.decision==='reject';}).length;
+  tx.status=e>=req(tx)?'endorsed':(tx.endorsers.length-r<req(tx)?'rejected':'proposed');
+}
+function orgHasOnlinePeer(orgId){ return S.nodes.some(function(n){return n.orgId===orgId&&n.kind==='peer'&&n.online;}); }
+function visible(tx,m){
+  if(m.role==='Admin'||m.role==='Auditor') return true;
+  return tx.fromOrg===m.orgId||tx.toOrg===m.orgId||tx.endorsers.indexOf(m.orgId)>=0;
+}
+function blockVisible(b,m){ return !b.data.txId||(function(){ var tx=S.txs.find(function(t){return t.id===b.data.txId;}); return tx?visible(tx,m):(m.role==='Admin'||m.role==='Auditor'); })(); }
+
+/* ---------- permission gate ---------- */
+function gate(role,what){
+  var m=me(), o=O(m.orgId);
+  if(!m.active||!o||!o.active){ BL.toast('Access denied: '+m.name+' is inactive or belongs to an inactive organisation.','bad'); return false; }
+  if(m.role!==role){ BL.toast('Access denied: '+what+' needs the '+role+' role. You are acting as '+m.role+'.','bad'); return false; }
+  return true;
+}
+
+/* ---------- core operations (no permission checks; used by seed and UI) ---------- */
+function syncOnline(){ S.nodes.forEach(function(n){ if(n.online&&!syncTimers[n.id]) n.height=tip(); }); }
+function addNode(orgId,kind){
+  var o=O(orgId), n=S.nodes.filter(function(x){return x.orgId===orgId&&x.kind===kind;}).length;
+  var node={id:uid('node'),orgId:orgId,kind:kind,name:(kind==='peer'?'peer':'orderer')+n+'.'+o.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''),online:true,height:0};
+  S.nodes.push(node); return node;
+}
+function propose(m,d){
+  var tx={id:d.id,type:d.type,item:d.item,qty:d.qty,note:d.note||'',fromOrg:m.orgId,toOrg:d.toOrg,endorsers:d.endorsers,proposer:m.id,votes:[],status:'proposed',createdAt:new Date().toISOString()};
+  S.txs.push(tx); evalTx(tx); log(m.name+' proposed '+tx.id+' ('+tx.type+').'); return tx;
+}
+function vote(m,tx,decision){
+  tx.votes.push({orgId:m.orgId,memberId:m.id,decision:decision,ts:new Date().toISOString()}); evalTx(tx);
+  log(m.name+' ('+O(m.orgId).name+') '+(decision==='endorse'?'endorsed ':'rejected ')+tx.id+'.');
+}
+function commit(tx,by){
+  var prev=S.blocks[S.blocks.length-1];
+  var data={txId:tx.id,type:tx.type,item:tx.item,qty:tx.qty,fromOrg:O(tx.fromOrg).name,toOrg:O(tx.toOrg).name,endorsedBy:tx.votes.filter(function(v){return v.decision==='endorse';}).map(function(v){return O(v.orgId).name;}),orderedBy:'orderer'};
+  var b=BL.makeBlock(S.blocks.length,data,prev.hash); S.blocks.push(b); S.trusted.push(BL.clone(b));
+  tx.status='committed'; tx.blockIndex=b.index; tx.committedAt=b.timestamp; syncOnline();
+  log('Block #'+b.index+' committed for '+tx.id+(by?' by '+by+'.':'.')); return b;
+}
+function newTxId(){ var n=1001+S.txs.length; while(S.txs.some(function(t){return t.id.toLowerCase()==='tx-'+n;})) n++; return 'TX-'+n; }
+
+function freshState(){
+  var s={orgs:[],members:[],nodes:[],txs:[],blocks:[],trusted:[],activity:[],settings:{policy:'majority'},actingAs:null};
+  S=s;
+  var op={id:'org-op',name:'Network Operator',kind:'Operator',operator:true,active:true};
+  var f={id:'org-fox',name:'Foxlink Components',kind:'Supplier',active:true},nv={id:'org-nova',name:'Nova Assembly',kind:'Manufacturer',active:true},ap={id:'org-apex',name:'Apex Logistics',kind:'Logistics',active:true};
+  s.orgs.push(op,f,nv,ap);
+  [['m-priya','Priya Sharma','org-op','Admin'],['m-zara','Zara Ali','org-op','Auditor'],['m-ravi','Ravi Menon','org-fox','Initiator'],['m-sunil','Sunil Das','org-fox','Endorser'],
+   ['m-neha','Neha Kulkarni','org-nova','Initiator'],['m-meera','Meera Iyer','org-nova','Endorser'],['m-kabir','Kabir Shah','org-apex','Initiator'],['m-arjun','Arjun Nair','org-apex','Endorser']]
+   .forEach(function(r){ s.members.push({id:r[0],name:r[1],orgId:r[2],role:r[3],active:true}); });
+  s.actingAs='m-ravi';
+  var g=BL.makeBlock(0,{genesis:true,note:'Consortium genesis block',channel:'electronics-supply'},BL.ZERO); s.blocks.push(g); s.trusted.push(BL.clone(g));
+  addNode('org-op','orderer'); ['org-fox','org-nova','org-apex'].forEach(function(o){ addNode(o,'peer'); addNode(o,'peer'); });
+  syncOnline();
+  log('Network created with 3 organisations and a majority endorsement policy.');
+  // opening state: one committed shipment and one proposal waiting for endorsements
+  var t1=propose(M('m-ravi'),{id:'TX-1001',type:'Component shipment',item:'Lithium-ion cells (18650)',qty:5000,toOrg:'org-nova',endorsers:['org-fox','org-nova']});
+  vote(M('m-sunil'),t1,'endorse'); vote(M('m-meera'),t1,'endorse'); commit(t1,'Ravi Menon');
+  var t2=propose(M('m-neha'),{id:'TX-1002',type:'Custody transfer',item:'Assembled control boards',qty:1200,toOrg:'org-apex',endorsers:['org-nova','org-apex','org-fox']});
+  vote(M('m-meera'),t2,'endorse');
+}
+
+/* ---------- views ---------- */
+var V={};
+function sb(s){ var c={proposed:'warn',endorsed:'ok',committed:'ok',rejected:'bad'}[s]||''; return '<span class="badge '+c+'">'+s+'</span>'; }
+function stat(n,l){ return '<div class="card white sm rv"><div class="stat">'+n+'</div><div class="stat-l">'+l+'</div></div>'; }
+
+V.overview=function(){
+  var m=me(), pend=S.txs.filter(function(t){return t.status==='proposed'||t.status==='endorsed';}).length, nodesOn=S.nodes.filter(function(n){return n.online;}).length;
+  var orgs=S.orgs.map(function(o){ return '<tr><td><b>'+esc(o.name)+'</b></td><td>'+esc(o.kind)+'</td><td>'+S.members.filter(function(x){return x.orgId===o.id;}).length+'</td><td>'+S.nodes.filter(function(n){return n.orgId===o.id;}).length+'</td><td><span class="badge '+(o.active?'ok':'bad')+'">'+(o.active?'active':'inactive')+'</span></td></tr>'; }).join('');
+  return '<div class="grid g5">'+stat(S.orgs.length,'Organisations')+stat(S.members.length,'Members')+stat(nodesOn+'/'+S.nodes.length,'Nodes online')+stat(S.blocks.length,'Blocks')+stat(pend,'Open proposals')+'</div>'+
+  '<div class="notice" style="margin-top:1.25rem"><b>You are acting as '+esc(m.name)+'</b> · '+esc(O(m.orgId)?O(m.orgId).name:'?')+' · '+m.role+'. Endorsement policy: <b>'+policyLabel()+'</b>.</div>'+
+  '<div class="grid g2" style="margin-top:1.25rem;align-items:start"><div class="card white"><h3>Organisations</h3><div class="tw" style="margin-top:1rem"><table><thead><tr><th>Name</th><th>Type</th><th>Members</th><th>Nodes</th><th>Status</th></tr></thead><tbody>'+orgs+'</tbody></table></div></div>'+
+  '<div class="stack"><div class="card white"><div class="card-head"><div><h3>Activity</h3></div></div>'+(S.activity.slice(0,6).map(function(a){return '<p style="margin:0 0 .6rem;font-size:.92rem"><span class="muted mono" style="font-size:.72rem">'+esc(BL.fmtTime(a.ts))+'</span><br>'+esc(a.msg)+'</p>';}).join('')||'<div class="empty">No activity.</div>')+'</div>'+
+  '<div class="card"><h3>Demo scenario</h3><ol style="padding-left:1.1rem;margin:.6rem 0 1rem"><li>Act as <b>Ravi</b> (Initiator) and propose a shipment in <a href="#transactions">Transactions</a>.</li><li>Act as an Endorser from each organisation and endorse it.</li><li>Switch back to Ravi and commit it to the ledger.</li><li>Disconnect a peer in <a href="#network">Network</a>, commit again, then reconnect and watch the replay.</li><li>As <b>Priya</b> (Admin), tamper with a block in <a href="#ledger">Ledger</a>.</li></ol><button class="btn purple sm" data-act="demo" type="button">Run scripted demo transaction</button></div></div></div>';
+};
+function policyLabel(){ return {majority:'majority of endorsing orgs',all:'all endorsing orgs',any:'any one org',two:'any two orgs'}[S.settings.policy]; }
+
+V.orgs=function(){
+  var rows=S.orgs.map(function(o){
+    return '<tr><td><b>'+esc(o.name)+'</b>'+(o.operator?' <span class="badge dark">operator</span>':'')+'</td><td>'+esc(o.kind)+'</td><td><span class="badge '+(o.active?'ok':'bad')+'">'+(o.active?'active':'inactive')+'</span></td><td class="right"><div class="row" style="justify-content:flex-end">'+
+    (o.operator?'':'<button class="btn ghost sm" data-act="org-toggle" data-id="'+o.id+'" type="button">'+(o.active?'Deactivate':'Activate')+'</button><button class="btn ghost sm" data-act="org-del" data-id="'+o.id+'" type="button">'+(V._confirm===o.id?'Click again to delete':'Delete')+'</button>')+'</div></td></tr>';
+  }).join('');
+  return '<div class="grid g2" style="align-items:start"><div class="card white"><div class="card-head"><div><h3>Organisations</h3><p>Admin only. Deleting is blocked once an organisation appears on a transaction.</p></div></div><div class="tw"><table><thead><tr><th>Name</th><th>Type</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
+  '<div class="card"><h3>Register organisation</h3><form id="orgForm" novalidate style="margin-top:1rem"><div class="field"><label for="oName">Name</label><input id="oName" maxlength="40" autocomplete="off" placeholder="Orbit Retail"></div><div class="field"><label for="oKind">Type</label><select id="oKind">'+ORG_KINDS.map(function(k){return '<option>'+k+'</option>';}).join('')+'</select></div><button class="btn" type="submit">Register organisation</button></form><p class="hint">A new organisation starts with one peer that must replay the ledger before it is current.</p></div></div>';
+};
+
+V.network=function(){
+  var rows=S.nodes.map(function(n){
+    var o=O(n.orgId), lag=tip()-n.height, syncing=!!syncTimers[n.id];
+    var st=syncing?'<span class="node-dot sync"></span>syncing':n.online?'<span class="node-dot on"></span>online':'<span class="node-dot"></span>offline';
+    return '<tr><td class="mono">'+esc(n.name)+'</td><td>'+esc(o?o.name:'—')+'</td><td>'+n.kind+'</td><td>'+st+'</td><td class="num">'+n.height+' / '+tip()+(lag>0?' <span class="badge warn">'+lag+' behind</span>':' <span class="badge ok">current</span>')+'<div class="bar" style="margin-top:.4rem;width:140px"><i style="width:'+(tip()?Math.round(n.height/tip()*100):100)+'%"></i></div></td>'+
+      '<td class="right"><div class="row" style="justify-content:flex-end">'+(n.kind==='peer'?'<button class="btn ghost sm" data-act="node-toggle" data-id="'+n.id+'" type="button">'+(n.online?'Disconnect':'Connect')+'</button>':'')+(lag>0&&n.online&&!syncing?'<button class="btn purple sm" data-act="node-replay" data-id="'+n.id+'" type="button">Replay</button>':'')+(n.kind==='peer'?'<button class="btn ghost sm" data-act="node-del" data-id="'+n.id+'" type="button">Remove</button>':'')+'</div></td></tr>';
+  }).join('');
+  return '<div class="card white"><div class="card-head"><div><h3>Peers and orderer</h3><p>Online peers receive every committed block immediately. An offline peer falls behind, and a reconnected one replays the missing transactions block by block.</p></div></div><div class="tw"><table><thead><tr><th>Node</th><th>Organisation</th><th>Role</th><th>Status</th><th>Ledger height</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
+  '<div class="card" style="margin-top:1.25rem"><h3>Add a peer</h3><form id="nodeForm" class="form-row" style="align-items:end;margin-top:1rem"><div class="field"><label for="nOrg">Organisation</label><select id="nOrg">'+biz().map(function(o){return '<option value="'+o.id+'">'+esc(o.name)+'</option>';}).join('')+'</select></div><div class="field"><button class="btn" type="submit">Add peer</button></div></form></div>';
+};
+
+V.members=function(){
+  var rows=S.members.map(function(m){ var o=O(m.orgId);
+    return '<tr><td><b>'+esc(m.name)+'</b></td><td>'+esc(o?o.name:'—')+'</td><td><span class="badge">'+m.role+'</span></td><td><span class="badge '+(m.active?'ok':'bad')+'">'+(m.active?'active':'inactive')+'</span></td><td class="right"><div class="row" style="justify-content:flex-end"><button class="btn ghost sm" data-act="mem-toggle" data-id="'+m.id+'" type="button">'+(m.active?'Deactivate':'Activate')+'</button><button class="btn ghost sm" data-act="mem-del" data-id="'+m.id+'" type="button">Delete</button></div></td></tr>';
+  }).join('');
+  var Y='<span class="badge ok">Yes</span>',N='<span class="muted">No</span>';
+  return '<div class="grid g2" style="align-items:start"><div class="card white"><div class="card-head"><div><h3>Members</h3><p>Admin only. Inactive members cannot act.</p></div></div><div class="tw"><table><thead><tr><th>Name</th><th>Organisation</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
+  '<div class="stack"><div class="card"><h3>Add member</h3><form id="memForm" novalidate style="margin-top:1rem"><div class="field"><label for="mName">Name</label><input id="mName" maxlength="40" autocomplete="off"></div><div class="form-row"><div class="field"><label for="mOrg">Organisation</label><select id="mOrg">'+S.orgs.map(function(o){return '<option value="'+o.id+'">'+esc(o.name)+'</option>';}).join('')+'</select></div><div class="field"><label for="mRole">Role</label><select id="mRole">'+ROLES.map(function(r){return '<option>'+r+'</option>';}).join('')+'</select></div></div><button class="btn" type="submit">Add member</button><div id="mErr" class="err"></div></form></div>'+
+  '<div class="card white"><h3>Permission matrix</h3><div class="tw" style="margin-top:1rem"><table><thead><tr><th>Action</th><th>Admin</th><th>Initiator</th><th>Endorser</th><th>Auditor</th></tr></thead><tbody><tr><td>Manage orgs, members, nodes, settings</td><td>'+Y+'</td><td>'+N+'</td><td>'+N+'</td><td>'+N+'</td></tr><tr><td>Create proposal</td><td>'+N+'</td><td>'+Y+'</td><td>'+N+'</td><td>'+N+'</td></tr><tr><td>Endorse or reject (own org)</td><td>'+N+'</td><td>'+N+'</td><td>'+Y+'</td><td>'+N+'</td></tr><tr><td>Commit endorsed proposal</td><td>'+N+'</td><td>Own org</td><td>'+N+'</td><td>'+N+'</td></tr><tr><td>View transactions and ledger</td><td>All</td><td>Own org</td><td>Own org</td><td>All</td></tr></tbody></table></div></div></div></div>';
+};
+
+V.transactions=function(){
+  var m=me(), list=S.txs.filter(function(t){return visible(t,m);}).slice().reverse();
+  var sel=V._tx&&S.txs.find(function(t){return t.id===V._tx&&visible(t,m);});
+  var orgOpts=biz().filter(function(o){return o.active&&o.id!==m.orgId;});
+  var form='<div class="card white"><div class="card-head"><div><h3>New proposal</h3><p>Initiator role. Pick the organisations whose endorsements count. You and the counterparty are always included.</p></div></div><form id="txForm" novalidate>'+
+   '<div class="form-row"><div class="field"><label for="tId">Transaction ID</label><input id="tId" placeholder="'+newTxId()+'" autocomplete="off"><p class="hint">Leave blank to auto-assign. IDs must be unique.</p></div><div class="field"><label for="tType">Type</label><select id="tType">'+TYPES.map(function(t){return '<option>'+t+'</option>';}).join('')+'</select></div></div>'+
+   '<div class="form-row"><div class="field"><label for="tItem">Item</label><input id="tItem" maxlength="60" placeholder="OLED display panels" autocomplete="off"></div><div class="field"><label for="tQty">Quantity</label><input id="tQty" inputmode="numeric" placeholder="2500"></div></div>'+
+   '<div class="form-row"><div class="field"><label for="tTo">Counterparty</label><select id="tTo">'+orgOpts.map(function(o){return '<option value="'+o.id+'">'+esc(o.name)+'</option>';}).join('')+'</select></div>'+
+   '<div class="field"><label>Extra endorsing orgs</label><div class="row" id="tExtra">'+biz().filter(function(o){return o.active&&o.id!==m.orgId;}).map(function(o){return '<label style="margin:0;text-transform:none;letter-spacing:0;font-family:var(--f-body);font-size:.9rem;color:var(--body)"><input type="checkbox" value="'+o.id+'" style="width:auto;margin-right:.3rem">'+esc(o.name)+'</label>';}).join('')+'</div></div></div>'+
+   '<div id="tErr" class="err"></div><button class="btn" type="submit">Submit proposal</button></form></div>';
+  var rows=list.map(function(t){ var e=t.votes.filter(function(v){return v.decision==='endorse';}).length;
+    return '<tr><td><a href="#transactions" class="mono" data-act="pick" data-id="'+t.id+'"><b>'+esc(t.id)+'</b></a></td><td>'+esc(t.type)+'</td><td>'+esc(t.item)+' × '+t.qty.toLocaleString()+'</td><td>'+esc(O(t.fromOrg)?O(t.fromOrg).name:'?')+' → '+esc(O(t.toOrg)?O(t.toOrg).name:'?')+'</td><td class="num">'+e+' / '+req(t)+'</td><td>'+sb(t.status)+'</td></tr>';
+  }).join('');
+  var det='';
+  if(sel){
+    var t=sel, e=t.votes.filter(function(v){return v.decision==='endorse';}).length, r=req(t);
+    det='<div class="card" style="margin-top:1.25rem"><div class="card-head"><div><h3>'+esc(t.id)+' · '+esc(t.type)+'</h3><p>'+esc(t.item)+' × '+t.qty.toLocaleString()+' · proposed by '+esc(M(t.proposer)?M(t.proposer).name:'?')+'</p></div>'+sb(t.status)+'</div>'+
+     '<label>Endorsement progress · policy needs '+r+' of '+t.endorsers.length+'</label><div class="bar" style="margin:.4rem 0 1rem"><i style="width:'+Math.min(100,Math.round(e/r*100))+'%"></i></div>'+
+     '<div class="tw"><table><thead><tr><th>Endorsing organisation</th><th>Decision</th><th>By</th></tr></thead><tbody>'+t.endorsers.map(function(oid){ var v=t.votes.filter(function(x){return x.orgId===oid;})[0]; return '<tr><td>'+esc(O(oid)?O(oid).name:'?')+'</td><td>'+(v?'<span class="badge '+(v.decision==='endorse'?'ok':'bad')+'">'+v.decision+'</span>':'<span class="badge">waiting</span>')+'</td><td>'+(v&&M(v.memberId)?esc(M(v.memberId).name):'—')+'</td></tr>'; }).join('')+'</tbody></table></div>'+
+     (t.status==='committed'?'<p style="margin-top:1rem">Committed in <a href="#ledger">block #'+t.blockIndex+'</a>.</p>':'<div class="row" style="margin-top:1rem"><button class="btn sm" data-act="endorse" data-id="'+t.id+'" type="button">Endorse</button><button class="btn danger sm" data-act="reject" data-id="'+t.id+'" type="button">Reject</button><button class="btn purple sm" data-act="commit" data-id="'+t.id+'" type="button">Commit to ledger</button></div><p class="hint">Endorse and reject apply to your own organisation only, and need an online peer there.</p>')+'</div>';
+  } else if(V._tx) det='<div class="notice warn" style="margin-top:1.25rem">'+esc(V._tx)+' is not visible to the identity you are acting as.</div>';
+  return '<div class="grid" style="align-items:start"><div class="card white"><div class="card-head"><div><h3>Proposals</h3><p>'+(m.role==='Admin'||m.role==='Auditor'?'You can see every transaction.':'Showing transactions that involve '+esc(O(m.orgId)?O(m.orgId).name:'your organisation')+'.')+'</p></div></div><div class="tw"><table><thead><tr><th>ID</th><th>Type</th><th>Item</th><th>Route</th><th>Votes</th><th>Status</th></tr></thead><tbody>'+(rows||'<tr><td colspan="6"><div class="empty">Nothing visible.</div></td></tr>')+'</tbody></table></div></div>'+form+'</div>'+det;
+};
+
+V.ledger=function(){
+  var m=me(), v=BL.verifyChain(S.blocks), bad={}; v.issues.forEach(function(i){(bad[i.index]=bad[i.index]||[]).push(i.reason);});
+  var blocks=S.blocks.map(function(b,i){
+    var d=b.data, seeable=blockVisible(b,m), isBad=!!bad[i];
+    return '<article class="block'+(i===0?' genesis':'')+(isBad?' bad':'')+'"><h4>Block #'+i+(isBad?'<span class="badge bad">Invalid</span>':'<span class="badge ok">Valid</span>')+'</h4><dl>'+
+     (i===0?'<div><dt>Type</dt><dd>Genesis · '+esc(d.channel)+'</dd></div>':
+      (seeable?'<div><dt>Transaction</dt><dd><b>'+esc(d.txId)+'</b> · '+esc(d.type)+'</dd></div><div><dt>Item</dt><dd>'+esc(d.item)+' × '+Number(d.qty).toLocaleString()+'</dd></div><div><dt>Route</dt><dd>'+esc(d.fromOrg)+' → '+esc(d.toOrg)+'</dd></div><div><dt>Endorsed by</dt><dd>'+esc((d.endorsedBy||[]).join(', '))+'</dd></div>':
+       '<div><dt>Transaction</dt><dd class="muted">Hidden: not your organisation’s transaction. Only hashes are visible.</dd></div>'))+
+     '<div><dt>Time</dt><dd>'+esc(BL.fmtTime(b.timestamp))+'</dd></div><div><dt>Previous hash</dt><dd><span class="hash">'+esc(b.prevHash)+'</span></dd></div><div><dt>Hash</dt><dd><span class="hash">'+esc(b.hash)+'</span></dd></div>'+(isBad?'<div><dt>Why</dt><dd style="color:var(--bad)">'+esc(bad[i].join('; '))+'</dd></div>':'')+'</dl>'+
+     (i>0&&seeable?'<div class="row" style="margin-top:.8rem"><button class="btn danger sm" data-act="tamper" data-i="'+i+'" type="button">Tamper</button></div>':'')+'</article>';
+  }).join('');
+  return '<div class="notice '+(v.ok?'ok':'bad')+'" role="status"><h4>'+(v.ok?'Ledger verified':'Ledger tampered')+'</h4>'+(v.ok?'All '+S.blocks.length+' blocks match their hashes and links.':'First failure at block #'+v.issues[0].index+': '+esc(v.issues[0].reason)+'.')+'</div>'+
+  '<div class="row" style="margin:1rem 0"><button class="btn purple sm" data-act="repair" type="button">Repair from healthy peer copy</button><span class="hint" style="margin:0">Tamper and repair are Admin-only demonstrations.</span></div><div class="chain">'+blocks+'</div>';
+};
+
+V.learning=function(){
+  var rows=[['Organisations and MSP','Organisations with members and roles','No certificates or MSP definitions'],['Peers and orderer','Peer nodes with sync state, and one orderer node','No real processes, gossip or Raft'],['Endorsement policy','Per-transaction set of orgs, with a majority, all, any or two rule','No chaincode execution or read/write sets'],['Channels','One implicit channel','No channels or private data collections'],['Ledger','Hash-linked blocks with tamper detection','Single browser copy, not distributed']];
+  return '<div class="grid g2" style="align-items:start"><div style="max-width:820px">'+[['Why a consortium chain?','Several organisations that do not fully trust each other share one ledger. Membership is controlled, so everyone is identified, and writes need agreement from the right parties rather than from anyone online.'],['Endorsement, ordering, commit','A proposal is endorsed by the organisations named in its policy. The ordering service sequences endorsed transactions into blocks. Peers then validate and commit them to their copy of the ledger.'],['Roles and least privilege','Admins run the network but do not move goods. Initiators propose. Endorsers vouch for their own organisation only. Auditors read everything. Splitting duties limits what any one account can do.'],['Privacy between organisations','Not every participant needs every transaction. Here a member sees the contents of transactions that involve their own organisation, and only hashes for the rest. Real Fabric uses channels and private data collections.'],['Public versus permissioned','Public chains let anyone join and use mining or staking for consensus. Permissioned chains trade openness for known identities, higher throughput and privacy.']].map(function(i){return '<details class="acc"><summary>'+i[0]+'</summary><div>'+i[1]+'</div></details>';}).join('')+'</div>'+
+  '<div class="card white"><h3>Simulated versus real Fabric</h3><div class="tw" style="margin-top:1rem"><table><thead><tr><th>Concept</th><th>Here</th><th>Not here</th></tr></thead><tbody>'+rows.map(function(r){return '<tr><td><b>'+r[0]+'</b></td><td>'+r[1]+'</td><td>'+r[2]+'</td></tr>';}).join('')+'</tbody></table></div></div></div>';
+};
+
+V.config=function(){
+  return '<div class="grid g2" style="align-items:start"><div class="card white"><h3>Endorsement policy</h3><p>Applies to each proposal’s list of endorsing organisations. Open proposals are re-evaluated when it changes.</p><div class="field"><label for="pol">Policy</label><select id="pol"><option value="majority"'+(S.settings.policy==='majority'?' selected':'')+'>Majority of endorsing orgs</option><option value="all"'+(S.settings.policy==='all'?' selected':'')+'>All endorsing orgs</option><option value="two"'+(S.settings.policy==='two'?' selected':'')+'>Any two orgs</option><option value="any"'+(S.settings.policy==='any'?' selected':'')+'>Any one org</option></select></div><button class="btn" data-act="policy" type="button">Save policy</button></div>'+
+  '<div class="card"><h3>Data</h3><p>State lives in this browser only.</p><div class="row"><button class="btn ghost" data-act="export" type="button">Copy state as JSON</button><button class="btn danger" data-act="reset" type="button">Reset to demo data</button></div><div class="notice warn" style="margin-top:1rem"><h4>Simulation boundary</h4>Role checks are a teaching model. Anyone can edit browser storage, so this is not a security boundary.</div></div></div>';
+};
+
+/* ---------- router and events ---------- */
+var ROUTES=['overview','orgs','network','members','transactions','ledger','learning','config'], LABELS={overview:'Overview',orgs:'Organisations',network:'Network',members:'Members',transactions:'Transactions',ledger:'Ledger',learning:'Learning',config:'Settings'};
+$('#tabs').innerHTML=ROUTES.map(function(r){return '<a href="#'+r+'" data-r="'+r+'">'+LABELS[r]+'</a>';}).join('');
+function route(){ var r=(location.hash||'#overview').slice(1); return ROUTES.indexOf(r)>=0?r:'overview'; }
+function renderActing(){
+  $('#actAs').innerHTML=S.members.map(function(m){var o=O(m.orgId);return '<option value="'+m.id+'"'+(m.id===S.actingAs?' selected':'')+'>'+esc(m.name)+' · '+esc(o?o.name:'?')+' · '+m.role+((m.active&&o&&o.active)?'':' (inactive)')+'</option>';}).join('');
+}
+function render(){
+  if(!M(S.actingAs)) S.actingAs=(S.members.find(function(m){return m.role==='Admin';})||S.members[0]).id;
+  var r=route(); $('#view').innerHTML=V[r](); renderActing();
+  BL.$$('#tabs a').forEach(function(a){a.classList.toggle('on',a.dataset.r===r);});
+  document.title=LABELS[r]+' · Consortium Network Simulator · BlockLab';
+}
+window.addEventListener('hashchange',function(){render();window.scrollTo({top:0});});
+$('#actAs').addEventListener('change',function(e){ S.actingAs=e.target.value; save(); var m=me(); BL.toast('Now acting as '+m.name+' ('+m.role+')'); render(); });
+var view=$('#view');
+
+function startReplay(id){
+  var n=S.nodes.find(function(x){return x.id===id;}); if(!n||syncTimers[id]) return;
+  syncTimers[id]=setInterval(function(){
+    if(!n.online||n.height>=tip()){ clearInterval(syncTimers[id]); delete syncTimers[id]; if(n.height>=tip()) log(n.name+' finished replaying the ledger.'); save(); render(); return; }
+    n.height++; save(); if(route()==='network') render();
+  },450);
+  render();
+}
+BL.on(view,'click','[data-act]',function(e,el){
+  var a=el.dataset.act, id=el.dataset.id, m=me();
+  if(a==='pick'){ V._tx=id; if(route()==='transactions'){ e.preventDefault(); render(); } return; }
+  if(a==='export') return BL.copy(JSON.stringify(S,null,2));
+  if(a==='reset'){ Object.keys(syncTimers).forEach(function(k){clearInterval(syncTimers[k]);delete syncTimers[k];}); freshState(); save(); BL.toast('Demo data restored','ok'); return render(); }
+  if(a==='demo'){
+    var inits=S.members.filter(function(x){return x.role==='Initiator'&&x.active;}), ini=inits[0], tgt=biz().filter(function(o){return o.active&&o.id!==(ini&&ini.orgId);})[0];
+    if(!ini||!tgt) return BL.toast('Need an active initiator and a second organisation','bad');
+    var t=propose(ini,{id:newTxId(),type:'Quality inspection',item:'Sample batch '+BL.randHex(2).toUpperCase(),qty:100,toOrg:tgt.id,endorsers:[ini.orgId,tgt.id]});
+    t.endorsers.forEach(function(oid){ var e2=S.members.find(function(x){return x.orgId===oid&&x.role==='Endorser'&&x.active;}); if(e2&&orgHasOnlinePeer(oid)) vote(e2,t,'endorse'); });
+    if(t.status==='endorsed'){ commit(t,'scripted demo'); BL.toast(t.id+' endorsed and committed','ok'); } else BL.toast(t.id+' proposed, but could not be fully endorsed ('+t.status+')','bad');
+    save(); return render();
+  }
+  /* admin actions */
+  var adminOnly=['org-toggle','org-del','mem-toggle','mem-del','node-toggle','node-del','node-replay','policy','tamper','repair'];
+  if(adminOnly.indexOf(a)>=0&&!gate('Admin','this action')) return;
+  if(a==='org-toggle'){ var o=O(id); o.active=!o.active; log(m.name+(o.active?' activated ':' deactivated ')+o.name+'.'); }
+  if(a==='org-del'){
+    var o2=O(id), used=S.txs.some(function(t){return t.fromOrg===id||t.toOrg===id||t.endorsers.indexOf(id)>=0;});
+    if(used){ BL.toast('Cannot delete '+o2.name+': it appears on transactions. Deactivate it instead.','bad'); return; }
+    if(V._confirm!==id){ V._confirm=id; return render(); }
+    S.orgs=S.orgs.filter(function(x){return x.id!==id;}); S.members=S.members.filter(function(x){return x.orgId!==id;}); S.nodes=S.nodes.filter(function(x){return x.orgId!==id;}); V._confirm=null; log(m.name+' deleted '+o2.name+'.');
+  }
+  if(a==='mem-toggle'){ var mm=M(id); mm.active=!mm.active; log(m.name+(mm.active?' activated ':' deactivated ')+mm.name+'.'); }
+  if(a==='mem-del'){
+    var t2=M(id); if(id===S.actingAs) return BL.toast('Switch to another identity before deleting this one.','bad');
+    if(t2.role==='Admin'&&S.members.filter(function(x){return x.role==='Admin';}).length<2) return BL.toast('The network needs at least one Admin.','bad');
+    S.members=S.members.filter(function(x){return x.id!==id;}); log(m.name+' removed '+t2.name+'.');
+  }
+  if(a==='node-toggle'){ var n=S.nodes.find(function(x){return x.id===id;}); n.online=!n.online; if(!n.online&&syncTimers[id]){ clearInterval(syncTimers[id]); delete syncTimers[id]; } log(n.name+(n.online?' reconnected.':' disconnected.')); if(n.online&&n.height<tip()){ save(); return startReplay(id); } }
+  if(a==='node-del'){ var n2=S.nodes.find(function(x){return x.id===id;}); clearInterval(syncTimers[id]); delete syncTimers[id]; S.nodes=S.nodes.filter(function(x){return x.id!==id;}); log(m.name+' removed '+n2.name+'.'); }
+  if(a==='node-replay'){ return startReplay(id); }
+  if(a==='policy'){ S.settings.policy=$('#pol').value; S.txs.forEach(evalTx); log(m.name+' set the policy to “'+policyLabel()+'”.'); BL.toast('Policy saved','ok'); }
+  if(a==='tamper'){ var b=S.blocks[+el.dataset.i]; if(b&&b.data&&b.data.qty!=null){ b.data.qty=Number(b.data.qty)+9999; log(m.name+' tampered with block #'+b.index+'.'); BL.toast('Block #'+b.index+' altered without re-hashing','bad'); } }
+  if(a==='repair'){ S.blocks=BL.clone(S.trusted); log(m.name+' restored the ledger from the healthy peer copy.'); BL.toast('Ledger repaired','ok'); }
+  /* initiator / endorser actions */
+  if(a==='endorse'||a==='reject'){
+    if(!gate('Endorser',a+' a proposal')) return;
+    var tx=S.txs.find(function(x){return x.id===id;});
+    if(tx.status==='committed') return BL.toast('Already committed.','bad');
+    if(tx.endorsers.indexOf(m.orgId)<0) return BL.toast('Denied: your organisation is not on this proposal’s endorsement list.','bad');
+    if(tx.votes.some(function(v){return v.orgId===m.orgId;})) return BL.toast('Your organisation has already voted on this proposal.','bad');
+    if(!orgHasOnlinePeer(m.orgId)) return BL.toast('Your organisation has no online peer to execute the endorsement.','bad');
+    if(tx.status==='rejected') return BL.toast('This proposal can no longer meet the policy.','bad');
+    vote(m,tx,a==='endorse'?'endorse':'reject');
+  }
+  if(a==='commit'){
+    if(!gate('Initiator','commit a proposal')) return;
+    var tx2=S.txs.find(function(x){return x.id===id;});
+    if(tx2.fromOrg!==m.orgId) return BL.toast('Only an initiator from the proposing organisation can commit.','bad');
+    if(tx2.status!=='endorsed') return BL.toast('Cannot commit: the proposal is '+tx2.status+' and the policy needs '+req(tx2)+' endorsement'+(req(tx2)>1?'s':'')+'.','bad');
+    var b2=commit(tx2,m.name); BL.toast('Committed in block #'+b2.index,'ok');
+  }
+  save(); render();
+});
+view.addEventListener('submit',function(e){
+  e.preventDefault(); var id=e.target.id, m=me();
+  if(id==='orgForm'){
+    if(!gate('Admin','registering organisations')) return;
+    var n=$('#oName').value.trim().replace(/\s+/g,' ');
+    if(n.length<3) return BL.toast('Enter an organisation name (3+ characters).','bad');
+    if(S.orgs.some(function(o){return o.name.toLowerCase()===n.toLowerCase();})) return BL.toast('That organisation already exists.','bad');
+    var o={id:uid('org'),name:n,kind:$('#oKind').value,active:true}; S.orgs.push(o); addNode(o.id,'peer'); log(m.name+' registered '+n+'.'); save(); BL.toast('Organisation registered. Its peer must replay the ledger.','ok'); startReplay(S.nodes[S.nodes.length-1].id); return;
+  }
+  if(id==='nodeForm'){
+    if(!gate('Admin','adding nodes')) return;
+    var nd=addNode($('#nOrg').value,'peer'); log(m.name+' added '+nd.name+'.'); save(); BL.toast('Peer added. Replaying the ledger…','ok'); startReplay(nd.id); return;
+  }
+  if(id==='memForm'){
+    if(!gate('Admin','adding members')) return;
+    var nm=$('#mName').value.trim().replace(/\s+/g,' ');
+    if(nm.length<2){ $('#mErr').textContent='Enter a name.'; return; }
+    if(S.members.some(function(x){return x.name.toLowerCase()===nm.toLowerCase();})){ $('#mErr').textContent='A member with that name already exists.'; return; }
+    var org=O($('#mOrg').value), role=$('#mRole').value;
+    if(org.operator&&(role==='Initiator'||role==='Endorser')){ $('#mErr').textContent='The operator organisation cannot hold Initiator or Endorser roles.'; return; }
+    if(!org.operator&&(role==='Admin')){ $('#mErr').textContent='Admins belong to the operator organisation.'; return; }
+    S.members.push({id:uid('m'),name:nm,orgId:org.id,role:role,active:true}); log(m.name+' added '+nm+' as '+role+'.'); save(); BL.toast('Member added','ok'); return render();
+  }
+  if(id==='txForm'){
+    if(!gate('Initiator','creating proposals')) return;
+    var tid=$('#tId').value.trim().toUpperCase()||newTxId(), item=$('#tItem').value.trim(), qty=$('#tQty').value.trim(), to=$('#tTo').value, err='';
+    var extra=BL.$$('#tExtra input:checked').map(function(c){return c.value;});
+    if(!/^[A-Z0-9][A-Z0-9_-]{2,23}$/.test(tid)) err='ID must be 3–24 letters, digits, dashes or underscores.';
+    else if(S.txs.some(function(t){return t.id.toUpperCase()===tid;})) err='Transaction ID '+tid+' already exists. Duplicates are rejected.';
+    else if(item.length<2) err='Describe the item.';
+    else if(!/^\d{1,7}$/.test(qty)||+qty<1) err='Quantity must be a whole number from 1 to 9,999,999.';
+    else if(!to||!O(to)||!O(to).active) err='Choose an active counterparty organisation.';
+    if(err){ $('#tErr').textContent=err; return; }
+    var ends=[m.orgId,to].concat(extra.filter(function(x){return x!==to&&x!==m.orgId&&O(x)&&O(x).active;}));
+    var tx=propose(m,{id:tid,type:$('#tType').value,item:item,qty:+qty,toOrg:to,endorsers:ends}); V._tx=tx.id; save(); BL.toast(tid+' proposed','ok'); render();
+  }
+});
+
+function load(){
+  var s=BL.store.get(KEY,null);
+  if(s&&s.orgs&&s.blocks&&s.trusted&&s.members&&s.nodes&&s.txs) S=s; else { freshState(); save(); }
+}
+BL.shell({mod:4}); load(); render();
+S.nodes.forEach(function(n){ if(n.online&&n.height<tip()) startReplay(n.id); }); // resume after reload
+})();
+</script>
+</body>
+</html>

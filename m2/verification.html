@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Password Verification · Password Security Lab · BlockLab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&family=Sometype+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/theme.css">
+</head>
+<body data-base="../" data-page="verification">
+<div id="nav"></div>
+<div class="subnav"><div class="subnav-in" role="navigation" aria-label="Experiments"><a href="index.html">Overview</a><a href="hashing.html">01 Hashing</a><a href="salt.html">02 Salting</a><a href="verification.html" class="on">03 Verification</a><a href="comparison.html">04 Comparison</a><a href="avalanche.html">05 Avalanche</a><a href="security.html">06 Analysis</a></div></div>
+<main id="main">
+  <div class="wrap mhead">
+    <p class="crumbs"><a href="../index.html">Hub</a> / <a href="index.html">Module 02</a> / Password Verification</p>
+    <p class="kicker">Experiment 03</p>
+    <h1>Password verification</h1>
+    <p class="lead">A login check hashes the candidate password and compares it with the stored hash. The stored string carries its own salt and work factor. Accounts exist only in this tab’s memory.</p>
+  </div>
+  <div class="wrap" style="padding-bottom:clamp(48px,7vw,96px)">
+
+    <div class="notice warn" style="margin-bottom:1.5rem"><h4>Session-only demonstration</h4>Records disappear when you refresh or close the tab. Do not use a real password. <span id="engineNote"></span></div>
+    <div class="grid g2" style="align-items:start">
+      <div class="card white">
+        <div class="card-head"><div><h3>Create account</h3><p>The password is hashed with cost 10, then discarded.</p></div><span class="badge">Sign up</span></div>
+        <form id="registerForm" novalidate>
+          <div class="field"><label for="regUser">Username</label><input id="regUser" autocomplete="off" placeholder="demo_user"></div>
+          <div class="field"><label for="regPass">Password</label><input id="regPass" type="password" autocomplete="new-password" placeholder="At least 8 characters"><p class="hint">bcrypt reads only the first 72 bytes, so longer passwords are refused.</p></div>
+          <button class="btn" id="registerBtn" type="submit">Create demo account</button>
+          <div id="registerMsg" role="status"></div>
+        </form>
+      </div>
+      <div class="card white">
+        <div class="card-head"><div><h3>Sign in</h3><p>Try the correct password, then a wrong one. Five failures lock the name for 30 seconds.</p></div><span class="badge purple">Login</span></div>
+        <form id="loginForm" novalidate>
+          <div class="field"><label for="loginUser">Username</label><input id="loginUser" autocomplete="off" placeholder="Your username"></div>
+          <div class="field"><label for="loginPass">Password</label><input id="loginPass" type="password" autocomplete="current-password"></div>
+          <button class="btn purple" id="loginBtn" type="submit">Verify credentials</button>
+          <div id="loginMsg" role="status"></div>
+        </form>
+      </div>
+    </div>
+    <div class="card white" style="margin-top:1.25rem">
+      <div class="card-head"><div><h3>In-memory records</h3><p>Only the username and the hash string are kept. The string already contains the salt and cost.</p></div><span class="badge">Memory store</span></div>
+      <div id="accountList"></div>
+    </div>
+<nav class="row between" style="margin-top:2.5rem" aria-label="Experiment sequence">
+  <a class="btn ghost" href="salt.html">← Salting</a>
+  <a class="btn" href="comparison.html">Comparison <span class="arrow">→</span></a>
+</nav>
+  </div>
+</main>
+<div id="foot"></div>
+<script src="../js/common.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bcryptjs/2.4.3/bcrypt.min.js"></script>
+<script src="m2.js"></script>
+</body>
+</html>
